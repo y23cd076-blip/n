@@ -1,23 +1,10 @@
 streamlit
 streamlit-lottie
 requests
-python-dotenv
-Pillow
-PyPDF2
+pillow
 numpy
-
-# Supabase / HTTP
-requests
-
-# LangChain + Google Gemini
-langchain
-langchain-google-genai
-langchain-text-splitters
-
-# Transformers / Vision
+PyPDF2
 torch
 transformers
-sentencepiece
-
-# Optional (for safety)
-typing-extensions
+langchain
+langchain-google-genai
