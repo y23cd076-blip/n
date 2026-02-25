@@ -3,4 +3,6 @@ langchain
 faiss-cpu
 sentence-transformers
 pypdf
-python-dotenv
+transformers
+torch
+google-generativeai
