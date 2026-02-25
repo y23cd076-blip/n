@@ -1,4 +1,4 @@
-streamlit
+streamlit==1.32.2
 streamlit-lottie
 requests
 pypdf
@@ -7,6 +7,8 @@ torch
 transformers
 sentence-transformers
 faiss-cpu
-langchain
-langchain-google-genai
-google-generativeai
+
+langchain==0.1.16
+langchain-community==0.0.33
+langchain-google-genai==0.0.11
+google-generativeai==0.4.1
