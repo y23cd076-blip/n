@@ -8,5 +8,5 @@ transformers
 sentence-transformers
 faiss-cpu
 langchain
-google-generativeai
 langchain-google-genai
+google-generativeai
