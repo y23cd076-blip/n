@@ -1,126 +1,67 @@
-# ================================
-# SlideSense AI - Full Stable App
-# ================================
-
-import os
-import time
-import json
-import uuid
-import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
-
-import requests
 import streamlit as st
-import streamlit.components.v1 as components
 from streamlit_lottie import st_lottie
-from PIL import Image
+import requests, json, os, time, hashlib
+from typing import Any, Dict, Optional, List
+import streamlit.components.v1 as components
+from datetime import datetime, timezone
+
 from PyPDF2 import PdfReader
-import numpy as np
+from PIL import Image
+import torch
 
-# -------- Optional Vision --------
-try:
-    import torch
-    from transformers import BlipForQuestionAnswering, BlipProcessor
-    _BLIP_AVAILABLE = True
-except Exception:
-    _BLIP_AVAILABLE = False
-
-# -------- LangChain / Gemini -----
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
 from langchain.prompts import ChatPromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI
 
+from transformers import BlipProcessor, BlipForQuestionAnswering
 
-# =========================================================
-# CONFIG
-# =========================================================
-
+# -------------------- CONFIG --------------------
 st.set_page_config(page_title="SlideSense", page_icon="📘", layout="wide")
 
-logger = logging.getLogger("slidesense")
-logging.basicConfig(level=logging.INFO)
-
-# ---- Streamlit Secrets ----
+# ---- Streamlit Secrets (REQUIRED) ----
 SUPABASE_URL = st.secrets["SUPABASE_URL"].rstrip("/")
 SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
 
-USER_TABLE = "users"
+# ---- Tables ----
+USER_TABLE = "user_profiles"
 CHATS_TABLE = "chats"
 MESSAGES_TABLE = "messages"
 CHAT_META_TABLE = "chat_metadata"
 
-MAX_CONTEXT_TOKENS = 2500
-SUMMARIZE_AFTER_MESSAGES = 24
-
-
-# =========================================================
-# SUPABASE CLIENT
-# =========================================================
-
-def _supabase_headers() -> Dict[str, str]:
+# -------------------- SUPABASE HELPERS --------------------
+def sb_headers():
     return {
         "apikey": SUPABASE_ANON_KEY,
         "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
         "Content-Type": "application/json",
-        "Prefer": "return=representation",
     }
 
-
-def sb_request(method: str, path: str, params=None, json_body=None):
+def sb_get(path, params=None):
     url = f"{SUPABASE_URL}{path}"
-    resp = requests.request(
-        method,
-        url,
-        headers=_supabase_headers(),
-        params=params,
-        json=json_body,
-        timeout=20,
-    )
-    return resp
-
-
-def sb_get(path: str, params=None):
-    r = sb_request("GET", path, params=params)
+    r = requests.get(url, headers=sb_headers(), params=params, timeout=15)
     if r.status_code >= 400:
         raise RuntimeError(r.text)
-    return r.json() or []
+    return r.json()
 
-
-def sb_post(path: str, json_body):
-    r = sb_request("POST", path, json_body=json_body)
+def sb_post(path, data):
+    url = f"{SUPABASE_URL}{path}"
+    r = requests.post(url, headers=sb_headers(), json=data, timeout=15)
     if r.status_code >= 400:
         raise RuntimeError(r.text)
-    return r.json() or []
+    return r.json()
 
-
-def sb_patch(path: str, json_body):
-    r = sb_request("PATCH", path, json_body=json_body)
+def sb_patch(path, data):
+    url = f"{SUPABASE_URL}{path}"
+    r = requests.patch(url, headers=sb_headers(), json=data, timeout=15)
     if r.status_code >= 400:
         raise RuntimeError(r.text)
-    return r.json() or []
+    return r.json()
 
-
-# =========================================================
-# AUTH
-# =========================================================
-
-import hashlib
-
-def hash_password(p: str) -> str:
+# -------------------- AUTH --------------------
+def hash_pw(p): 
     return hashlib.sha256(p.encode()).hexdigest()
-
-def get_user():
-    return st.session_state.get("user")
-
-def set_user(u):
-    st.session_state["user"] = u
-
-def clear_session():
-    for k in list(st.session_state.keys()):
-        st.session_state.pop(k, None)
-
 
 def sign_up(username, password):
     rows = sb_get(f"/rest/v1/{USER_TABLE}", {
@@ -128,68 +69,56 @@ def sign_up(username, password):
         "username": f"eq.{username}"
     })
     if rows:
-        return "User already exists"
-
+        return "Username already exists"
     sb_post(f"/rest/v1/{USER_TABLE}", {
         "username": username,
-        "password_hash": hash_password(password)
+        "password_hash": hash_pw(password),
+        "created_at": datetime.now(timezone.utc).isoformat()
     })
     return None
-
 
 def sign_in(username, password):
     rows = sb_get(f"/rest/v1/{USER_TABLE}", {
-        "select": "id,username,password_hash",
+        "select": "*",
         "username": f"eq.{username}"
     })
     if not rows:
-        return "Invalid credentials"
+        return None
+    u = rows[0]
+    if u["password_hash"] != hash_pw(password):
+        return None
+    return u
 
-    if rows[0]["password_hash"] != hash_password(password):
-        return "Invalid credentials"
-
-    set_user({"id": rows[0]["id"], "username": rows[0]["username"]})
-    return None
-
-
-def sign_out():
-    clear_session()
-
-
-# =========================================================
-# MODELS
-# =========================================================
-
+# -------------------- MODELS --------------------
 @st.cache_resource
 def load_llm():
     return ChatGoogleGenerativeAI(model="gemini-2.5-flash")
 
 @st.cache_resource
-def load_embeddings():
-    return GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
-
-@st.cache_resource
 def load_blip():
-    if not _BLIP_AVAILABLE:
-        raise RuntimeError("BLIP not installed")
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    p = BlipProcessor.from_pretrained("Salesforce/blip-vqa-base")
-    m = BlipForQuestionAnswering.from_pretrained("Salesforce/blip-vqa-base").to(device)
-    return p, m, device
+    processor = BlipProcessor.from_pretrained("Salesforce/blip-vqa-base")
+    model = BlipForQuestionAnswering.from_pretrained("Salesforce/blip-vqa-base").to(device)
+    return processor, model, device
 
+# -------------------- UTILS --------------------
+def load_lottie(url):
+    r = requests.get(url)
+    return r.json() if r.status_code == 200 else None
 
-# =========================================================
-# CHAT SYSTEM (SAFE MODE - NO JOINS)
-# =========================================================
+def render_answer_with_copy(answer):
+    st.markdown(answer)
+    safe = json.dumps(answer)
+    components.html(f"""
+    <button onclick="navigator.clipboard.writeText({safe});"
+    style="margin-top:6px;padding:6px 12px;border-radius:6px;border:1px solid #ccc;cursor:pointer;">
+    Copy
+    </button>
+    """, height=40)
 
-def auto_title(q: str):
-    q = q.replace("\n", " ").strip()
-    return (q[:40] + "...") if len(q) > 40 else q
-
-
-def estimate_tokens(t: str):
-    return max(1, len(t)//4)
-
+# -------------------- CHAT SYSTEM --------------------
+def auto_title(q): 
+    return q[:40]
 
 def create_chat(user_id, mode, first_q):
     now = datetime.now(timezone.utc).isoformat()
@@ -197,7 +126,7 @@ def create_chat(user_id, mode, first_q):
         "user_id": user_id,
         "title": auto_title(first_q),
         "mode": mode,
-        "is_pinned": False,
+        "pinned": False,   # ✅ correct column
         "created_at": now,
         "updated_at": now
     })[0]
@@ -211,314 +140,174 @@ def create_chat(user_id, mode, first_q):
     })
     return chat
 
-
-def append_message(chat_id, role, content):
-    sb_post(f"/rest/v1/{MESSAGES_TABLE}", {
-        "chat_id": chat_id,
-        "role": role,
-        "content": content,
-        "token_estimate": estimate_tokens(content)
-    })
-
-
-def fetch_chat_messages(chat_id):
-    return sb_get(f"/rest/v1/{MESSAGES_TABLE}", {
+def fetch_user_chats(user_id):
+    chats = sb_get(f"/rest/v1/{CHATS_TABLE}", {
         "select": "*",
-        "chat_id": f"eq.{chat_id}",
-        "order": "created_at.asc"
+        "user_id": f"eq.{user_id}",
+        "order": "pinned.desc,updated_at.desc",
     })
-
-
-# 🔥 FIXED VERSION (NO JOIN)
-def fetch_user_chats(user_id: str):
-    chats = sb_get(
-        f"/rest/v1/{CHATS_TABLE}",
-        {
-            "select": "*",
-            "user_id": f"eq.{user_id}",
-            "order": "is_pinned.desc,updated_at.desc",
-        },
-    )
 
     chats = [c for c in chats if c.get("deleted_at") is None]
 
     if not chats:
         return []
 
-    chat_ids = [c["id"] for c in chats]
+    ids = [c["id"] for c in chats]
+    meta = sb_get(f"/rest/v1/{CHAT_META_TABLE}", {
+        "select": "*",
+        "chat_id": f"in.({','.join(ids)})"
+    })
 
-    meta_rows = sb_get(
-        f"/rest/v1/{CHAT_META_TABLE}",
-        {
-            "select": "*",
-            "chat_id": f"in.({','.join(chat_ids)})",
-        },
-    )
-
-    meta_map = {m["chat_id"]: m for m in meta_rows}
+    meta_map = {m["chat_id"]: m for m in meta}
 
     for c in chats:
-        c["chat_metadata"] = meta_map.get(c["id"], {})
-
+        c["meta"] = meta_map.get(c["id"], {})
     return chats
 
+# -------------------- LOGIN UI --------------------
+def login_ui():
+    col1, col2 = st.columns(2)
+    with col1:
+        st_lottie(load_lottie("https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json"), height=320)
 
-def update_metadata(chat_id, answer, tokens):
-    now = datetime.now(timezone.utc).isoformat()
+    with col2:
+        st.markdown("## 🔐 SlideSense Login")
 
-    sb_patch(f"/rest/v1/{CHATS_TABLE}?id=eq.{chat_id}", {
-        "updated_at": now
-    })
+        tab1, tab2 = st.tabs(["Login", "Sign Up"])
 
-    rows = sb_get(f"/rest/v1/{CHAT_META_TABLE}", {
-        "select": "*",
-        "chat_id": f"eq.{chat_id}"
-    })
+        with tab1:
+            u = st.text_input("Username")
+            p = st.text_input("Password", type="password")
+            if st.button("Login"):
+                user = sign_in(u,p)
+                if not user:
+                    st.error("Invalid credentials")
+                else:
+                    st.session_state.user = user
+                    st.rerun()
 
-    current_tokens = rows[0].get("token_count", 0) if rows else 0
+        with tab2:
+            u = st.text_input("New Username")
+            p = st.text_input("New Password", type="password")
+            if st.button("Create Account"):
+                err = sign_up(u,p)
+                if err:
+                    st.error(err)
+                else:
+                    st.success("Account created!")
 
-    sb_patch(f"/rest/v1/{CHAT_META_TABLE}?chat_id=eq.{chat_id}", {
-        "last_message_at": now,
-        "last_message_preview": answer[:150],
-        "token_count": current_tokens + tokens
-    })
+# -------------------- SESSION --------------------
+if "user" not in st.session_state:
+    st.session_state.user = None
+if "vector_db" not in st.session_state:
+    st.session_state.vector_db = None
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
+# -------------------- AUTH CHECK --------------------
+if not st.session_state.user:
+    login_ui()
+    st.stop()
 
-# =========================================================
-# PDF RAG
-# =========================================================
+user = st.session_state.user
 
-class SimpleVectorIndex:
-    def __init__(self, texts, vectors):
-        self.texts = texts
-        self.vectors = vectors.astype("float32")
-        self.vectors /= (np.linalg.norm(self.vectors, axis=1, keepdims=True) + 1e-9)
+# -------------------- SIDEBAR --------------------
+st.sidebar.success(f"Logged in as {user['username']}")
 
-    def similarity_search(self, q, k=5):
-        emb = load_embeddings().embed_query(q)
-        qv = np.array(emb, dtype="float32")
-        qv /= (np.linalg.norm(qv)+1e-9)
-        sims = np.dot(self.vectors, qv)
-        idxs = np.argsort(-sims)[:k]
+if st.sidebar.button("Logout"):
+    st.session_state.clear()
+    st.rerun()
 
-        class Doc:
-            def __init__(self, c): self.page_content = c
+mode = st.sidebar.radio("Mode", ["📘 PDF Analyzer", "🖼 Image Q&A"])
 
-        return [Doc(self.texts[i]) for i in idxs]
+# -------------------- SIDEBAR CHATS --------------------
+st.sidebar.markdown("### 💬 Chats")
 
+chats = fetch_user_chats(user["id"])
 
-def build_index(text):
-    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=80)
-    chunks = splitter.split_text(text)
-    embs = [load_embeddings().embed_query(c) for c in chunks]
-    return SimpleVectorIndex(chunks, np.array(embs))
+for c in chats:
+    label = "📌 " + c["title"] if c.get("pinned") else c["title"]
+    if st.sidebar.button(label, key=c["id"]):
+        st.session_state.active_chat = c["id"]
 
+# ==================== PDF MODE ====================
+if mode == "📘 PDF Analyzer":
 
-def answer_pdf(index, question):
-    docs = index.similarity_search(question, k=5)
-    llm = load_llm()
+    st.markdown("## 📘 PDF Analyzer")
 
-    prompt = ChatPromptTemplate.from_template("""
+    pdf = st.file_uploader("Upload PDF", type="pdf")
+
+    if pdf:
+        if st.session_state.vector_db is None:
+            with st.spinner("Processing PDF..."):
+                reader = PdfReader(pdf)
+                text = []
+                for p in reader.pages:
+                    if p.extract_text():
+                        text.append(p.extract_text())
+
+                splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=80)
+                chunks = splitter.split_text("\n".join(text))
+
+                embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+                st.session_state.vector_db = FAISS.from_texts(chunks, embeddings)
+
+        q = st.chat_input("Ask question from PDF")
+
+        if q:
+            llm = load_llm()
+            docs = st.session_state.vector_db.similarity_search(q, k=5)
+
+            context = "\n\n".join([d.page_content for d in docs])
+
+            prompt = f"""
 Context:
 {context}
 
 Question:
-{question}
+{q}
 
 Rules:
-- Answer only from context
-- If not found say: Information not found in the document.
-""")
+- Answer only from document
+- If not found say: Information not found in the document
+"""
 
-    chain = create_stuff_documents_chain(llm, prompt)
-    res = chain.invoke({"context": docs, "question": question})
+            ans = llm.invoke(prompt).content
+            st.session_state.chat_history.append((q, ans))
 
-    ans = res.get("output_text","") if isinstance(res,dict) else str(res)
+        st.markdown("## 💬 Conversation")
+        for q,a in reversed(st.session_state.chat_history):
+            with st.chat_message("user"):
+                st.markdown(q)
+            with st.chat_message("assistant"):
+                render_answer_with_copy(a)
 
-    return ans, docs
+# ==================== IMAGE MODE ====================
+if mode == "🖼 Image Q&A":
 
+    st.markdown("## 🖼 Image Q&A")
 
-# =========================================================
-# IMAGE QA
-# =========================================================
+    img_file = st.file_uploader("Upload image", type=["png","jpg","jpeg"])
 
-def answer_image(img, q):
-    p, m, d = load_blip()
-    inputs = p(img, q, return_tensors="pt").to(d)
-    out = m.generate(**inputs, max_length=10)
-    short = p.decode(out[0], skip_special_tokens=True)
+    if img_file:
+        img = Image.open(img_file).convert("RGB")
+        st.image(img, use_column_width=True)
 
-    llm = load_llm()
-    return llm.invoke(f"Rewrite clearly: {short}").content
-
-
-# =========================================================
-# UI
-# =========================================================
-
-def inject_css():
-    st.markdown("""
-    <style>
-    body {background:#020617;color:#e5e7eb;}
-    .chat-card{background:#0f172a;border-radius:10px;padding:8px;margin-bottom:6px;}
-    .chat-card:hover{background:#111827;}
-    </style>
-    """, unsafe_allow_html=True)
-
-
-def typing(text):
-    box = st.empty()
-    out=""
-    for c in text:
-        out+=c
-        box.markdown(out)
-        time.sleep(0.008)
-
-
-# =========================================================
-# MAIN
-# =========================================================
-
-def main():
-    inject_css()
-
-    user = get_user()
-
-    if not user:
-        st.title("🔐 SlideSense Login")
-        t1,t2 = st.tabs(["Login","Signup"])
-
-        with t1:
-            u = st.text_input("Username")
-            p = st.text_input("Password", type="password")
-            if st.button("Login"):
-                err = sign_in(u,p)
-                if err: st.error(err)
-                else: st.rerun()
-
-        with t2:
-            u = st.text_input("New Username")
-            p = st.text_input("New Password", type="password")
-            if st.button("Create"):
-                err = sign_up(u,p)
-                if err: st.error(err)
-                else: st.success("Account created")
-
-        return
-
-    # Sidebar
-    st.sidebar.markdown(f"👤 **{user['username']}**")
-    if st.sidebar.button("Logout"):
-        sign_out()
-        st.rerun()
-
-    st.sidebar.markdown("## 💬 Chats")
-
-    chats = fetch_user_chats(user["id"])
-
-    active_chat = st.session_state.get("active_chat")
-
-    for c in chats:
-        meta = c.get("chat_metadata",{})
-        title = c.get("title","Chat")
-        preview = meta.get("last_message_preview","")
-        if st.sidebar.button(f"{title}\n{preview[:30]}", key=c["id"]):
-            st.session_state["active_chat"] = c["id"]
-            st.session_state["mode"] = c["mode"]
-            st.rerun()
-
-    if st.sidebar.button("➕ New PDF Chat"):
-        st.session_state["active_chat"] = None
-        st.session_state["mode"] = "pdf"
-
-    if st.sidebar.button("➕ New Image Chat"):
-        st.session_state["active_chat"] = None
-        st.session_state["mode"] = "image"
-
-    mode = st.session_state.get("mode")
-
-    if not mode:
-        st.title("🚀 Start a new chat")
-        return
-
-    # ---------------- PDF MODE ----------------
-    if mode=="pdf":
-        st.title("📘 PDF Analyzer")
-
-        pdf = st.file_uploader("Upload PDF", type="pdf")
-
-        if "pdf_index" not in st.session_state:
-            st.session_state["pdf_index"] = None
-
-        if pdf and st.session_state["pdf_index"] is None:
-            reader = PdfReader(pdf)
-            text=""
-            for p in reader.pages:
-                if p.extract_text():
-                    text+=p.extract_text()+"\n"
-            st.session_state["pdf_index"] = build_index(text)
-
-        if active_chat:
-            msgs = fetch_chat_messages(active_chat)
-            for m in msgs:
-                with st.chat_message(m["role"]):
-                    st.markdown(m["content"])
-
-        q = st.chat_input("Ask your PDF")
+        q = st.text_input("Ask question about image")
 
         if q:
-            if not active_chat:
-                chat = create_chat(user["id"], "pdf", q)
-                active_chat = chat["id"]
-                st.session_state["active_chat"]=active_chat
+            processor, model, device = load_blip()
+            inputs = processor(img, q, return_tensors="pt").to(device)
+            out = model.generate(**inputs, max_length=10)
+            short = processor.decode(out[0], skip_special_tokens=True)
 
-            append_message(active_chat,"user",q)
+            llm = load_llm()
+            prompt = f"""
+Question: {q}
+Vision answer: {short}
+Convert into one clear sentence.
+"""
+            ans = llm.invoke(prompt).content
 
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    ans,_ = answer_pdf(st.session_state["pdf_index"], q)
-                    typing(ans)
-
-            append_message(active_chat,"assistant",ans)
-            update_metadata(active_chat, ans, estimate_tokens(q)+estimate_tokens(ans))
-            st.rerun()
-
-    # ---------------- IMAGE MODE ----------------
-    if mode=="image":
-        st.title("🖼 Image Q&A")
-        img_file = st.file_uploader("Upload image", type=["png","jpg","jpeg"])
-
-        if active_chat:
-            msgs = fetch_chat_messages(active_chat)
-            for m in msgs:
-                with st.chat_message(m["role"]):
-                    st.markdown(m["content"])
-
-        q = st.chat_input("Ask about image")
-
-        if q:
-            if not img_file:
-                st.error("Upload image first")
-                return
-
-            if not active_chat:
-                chat = create_chat(user["id"], "image", q)
-                active_chat = chat["id"]
-                st.session_state["active_chat"]=active_chat
-
-            img = Image.open(img_file).convert("RGB")
-
-            append_message(active_chat,"user",q)
-
-            with st.chat_message("assistant"):
-                with st.spinner("Analyzing..."):
-                    ans = answer_image(img,q)
-                    typing(ans)
-
-            append_message(active_chat,"assistant",ans)
-            update_metadata(active_chat, ans, estimate_tokens(q)+estimate_tokens(ans))
-            st.rerun()
-
-
-if __name__=="__main__":
-    main()
+            st.success("Answer:")
+            render_answer_with_copy(ans)
