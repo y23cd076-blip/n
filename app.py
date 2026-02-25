@@ -1,197 +1,221 @@
 import streamlit as st
-import requests, os, hashlib
-from typing import Dict, Any, List
-from PyPDF2 import PdfReader
+from streamlit_lottie import st_lottie
+import requests, json, os, time, hashlib, uuid
+from typing import Any, Dict, Optional, List
+import streamlit.components.v1 as components
 
+from pypdf import PdfReader
+from PIL import Image
+import torch
+
+# ================= FIXED LANGCHAIN IMPORTS =================
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import FAISS
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.prompts import ChatPromptTemplate
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.vectorstores import FAISS
 from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.prompts import ChatPromptTemplate
+from langchain_google_genai import ChatGoogleGenerativeAI
+# ==========================================================
 
-# ---------------- CONFIG ----------------
-st.set_page_config(page_title="SlideSense", layout="wide")
+from transformers import BlipProcessor, BlipForQuestionAnswering
+
+# -------------------- CONFIG --------------------
+st.set_page_config(page_title="SlideSense", page_icon="📘", layout="wide")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+USER_PROFILES_TABLE = "user_profiles"
 
-# ---------------- SUPABASE HELPERS ----------------
-def _auth_headers():
-    return {
-        "apikey": SUPABASE_ANON_KEY,
-        "Content-Type": "application/json",
-    }
+if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+    st.error("Missing Supabase configuration.")
+    st.stop()
 
-def _rest_request(method: str, path: str, **kwargs):
+# -------------------- AUTH HELPERS --------------------
+def _auth_headers() -> Dict[str, str]:
+    return {"apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json"}
+
+def _rest_request(method: str, path: str, **kwargs) -> requests.Response:
     url = f"{SUPABASE_URL}{path}"
-    return requests.request(method, url, headers=_auth_headers(), timeout=15, **kwargs)
+    return requests.request(method, url, headers=_auth_headers(), timeout=10, **kwargs)
 
-# ---------------- SESSION ----------------
-defaults = {
-    "current_chat_id": None,
-    "current_pdf_id": None,
-    "vector_db": None,
-}
-for k,v in defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+def set_session(user: Dict[str, Any]) -> None:
+    st.session_state["session"] = {"user": user}
 
-# ---------------- LLM ----------------
+def current_user() -> Optional[Dict[str, Any]]:
+    sess = st.session_state.get("session")
+    return sess["user"] if sess else None
+
+def _hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+def sign_up(username: str, password: str) -> Optional[str]:
+    if len(password) < 6:
+        return "Password must be at least 6 characters."
+
+    resp = _rest_request("GET", f"/rest/v1/{USER_PROFILES_TABLE}?select=username&username=eq.{username}")
+    if resp.json():
+        return "Username already exists."
+
+    payload = {"username": username, "password_hash": _hash_password(password)}
+    _rest_request("POST", f"/rest/v1/{USER_PROFILES_TABLE}", json=payload)
+    return None
+
+def sign_in(username: str, password: str) -> Optional[str]:
+    resp = _rest_request("GET", f"/rest/v1/{USER_PROFILES_TABLE}?select=id,username,password_hash&username=eq.{username}")
+    rows = resp.json()
+    if not rows:
+        return "Invalid username or password."
+    row = rows[0]
+    if row["password_hash"] != _hash_password(password):
+        return "Invalid username or password."
+
+    set_session({"id": row["id"], "username": row["username"]})
+    return None
+
+def sign_out():
+    st.session_state.pop("session", None)
+
+# -------------------- HELPERS --------------------
+def load_lottie(url):
+    r = requests.get(url)
+    return r.json() if r.status_code == 200 else None
+
+def render_answer_with_copy(answer: str):
+    st.markdown(answer)
+    safe_text = json.dumps(answer)
+    components.html(
+        f"""<button onclick="navigator.clipboard.writeText({safe_text});"
+        style="margin-top:4px;padding:4px 10px;border-radius:4px;border:1px solid #ccc;cursor:pointer;">
+        Copy</button>""",
+        height=40,
+    )
+
+# -------------------- MODELS --------------------
 @st.cache_resource
 def load_llm():
-    return ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
+    return ChatGoogleGenerativeAI(model="gemini-2.5-flash")
 
-# ---------------- UTILS ----------------
-def get_pdf_id(pdf, username):
-    raw = f"{username}_{pdf.name}_{pdf.size}"
-    return hashlib.sha256(raw.encode()).hexdigest()
+@st.cache_resource
+def load_blip():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    processor = BlipProcessor.from_pretrained("Salesforce/blip-vqa-base")
+    model = BlipForQuestionAnswering.from_pretrained("Salesforce/blip-vqa-base").to(device)
+    return processor, model, device
 
-# ---------------- CHAT DB OPS ----------------
-def create_new_chat(username, mode="pdf", pdf_id=None):
-    payload = {
-        "username": username,
-        "mode": mode,
-        "pdf_id": pdf_id,
-        "title": "New Chat"
+# -------------------- SESSION DEFAULTS --------------------
+if "chats" not in st.session_state:
+    st.session_state.chats = {}   # chat_id -> {history, vector_db}
+
+if "current_chat" not in st.session_state:
+    st.session_state.current_chat = None
+
+if "guest" not in st.session_state:
+    st.session_state.guest = False
+
+# -------------------- CHAT FUNCTIONS --------------------
+def create_chat():
+    cid = str(uuid.uuid4())[:8]
+    st.session_state.chats[cid] = {
+        "history": [],
+        "vector_db": None
     }
-    _rest_request("POST", "/rest/v1/chats", json=payload)
+    st.session_state.current_chat = cid
 
-    res = _rest_request(
-        "GET",
-        f"/rest/v1/chats?username=eq.{username}&order=created_at.desc&limit=1"
-    )
-    return res.json()[0]["id"]
+# -------------------- AUTH UI --------------------
+def login_ui():
+    col1, col2 = st.columns(2)
+    with col1:
+        st_lottie(load_lottie("https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json"), height=300)
 
-def load_user_chats(username, mode="pdf", pdf_id=None):
-    q = f"/rest/v1/chats?username=eq.{username}&mode=eq.{mode}"
-    if pdf_id:
-        q += f"&pdf_id=eq.{pdf_id}"
-    q += "&order=created_at.desc"
-    r = _rest_request("GET", q)
-    return r.json() if r.status_code < 400 else []
+    with col2:
+        st.markdown("## 🔐 Welcome to SlideSense")
+        tab1, tab2, tab3 = st.tabs(["Login", "Sign Up", "Guest"])
 
-def load_chat_messages(chat_id):
-    r = _rest_request("GET", f"/rest/v1/messages?chat_id=eq.{chat_id}&order=created_at.asc")
-    return r.json() if r.status_code < 400 else []
+        with tab1:
+            u = st.text_input("Username")
+            p = st.text_input("Password", type="password")
+            if st.button("Login"):
+                err = sign_in(u, p)
+                if err: st.error(err)
+                else: st.rerun()
 
-def save_message(chat_id, role, content):
-    payload = {
-        "chat_id": chat_id,
-        "role": role,
-        "content": content
-    }
-    _rest_request("POST", "/rest/v1/messages", json=payload)
+        with tab2:
+            u = st.text_input("Username", key="su")
+            p = st.text_input("Password", type="password", key="sp")
+            if st.button("Create Account"):
+                err = sign_up(u, p)
+                if err: st.error(err)
+                else: st.success("Account created!")
 
-def delete_chat(chat_id):
-    _rest_request("DELETE", f"/rest/v1/messages?chat_id=eq.{chat_id}")
-    _rest_request("DELETE", f"/rest/v1/chats?id=eq.{chat_id}")
-
-# ---------------- USER (SIMPLE DEMO AUTH) ----------------
-if "username" not in st.session_state:
-    st.session_state.username = None
-
-if not st.session_state.username:
-    st.title("Login")
-    u = st.text_input("Username")
-    if st.button("Enter"):
-        st.session_state.username = u
-        st.rerun()
-    st.stop()
-
-username = st.session_state.username
-
-# ---------------- SIDEBAR ----------------
-st.sidebar.markdown(f"### 👤 {username}")
-st.sidebar.divider()
-
-st.sidebar.markdown("## 📘 PDFs")
-pdf = st.sidebar.file_uploader("Upload PDF", type="pdf")
-
-if pdf:
-    pdf_id = get_pdf_id(pdf, username)
-    st.session_state.current_pdf_id = pdf_id
-
-    chats = load_user_chats(username, "pdf", pdf_id)
-
-    if not chats:
-        st.session_state.current_chat_id = create_new_chat(username, "pdf", pdf_id)
-    else:
-        if not st.session_state.current_chat_id:
-            st.session_state.current_chat_id = chats[0]["id"]
-
-# ---------------- PDF PROCESSING ----------------
-if pdf and st.session_state.vector_db is None:
-    reader = PdfReader(pdf)
-    text = ""
-    for p in reader.pages:
-        if p.extract_text():
-            text += p.extract_text() + "\n"
-
-    splitter = RecursiveCharacterTextSplitter(chunk_size=700, chunk_overlap=120)
-    chunks = splitter.split_text(text)
-
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    st.session_state.vector_db = FAISS.from_texts(chunks, embeddings)
-
-# ---------------- SIDEBAR CHATS ----------------
-if st.session_state.current_pdf_id:
-    st.sidebar.divider()
-    st.sidebar.markdown("## 💬 Chats")
-
-    chat_list = load_user_chats(username, "pdf", st.session_state.current_pdf_id)
-
-    if st.sidebar.button("➕ New Chat"):
-        st.session_state.current_chat_id = create_new_chat(
-            username, "pdf", st.session_state.current_pdf_id
-        )
-        st.rerun()
-
-    for chat in chat_list:
-        c1, c2 = st.sidebar.columns([5,1])
-        with c1:
-            if st.button(chat["title"], key=f"open_{chat['id']}"):
-                st.session_state.current_chat_id = chat["id"]
-                st.rerun()
-        with c2:
-            if st.button("🗑️", key=f"del_{chat['id']}"):
-                delete_chat(chat["id"])
-                if st.session_state.current_chat_id == chat["id"]:
-                    st.session_state.current_chat_id = None
+        with tab3:
+            if st.button("Continue as guest"):
+                st.session_state.guest = True
                 st.rerun()
 
-# ---------------- MAIN ----------------
-st.title("📘 SlideSense PDF Chat")
-
-if not pdf:
-    st.info("Upload a PDF to start")
+# -------------------- AUTH CHECK --------------------
+user = current_user()
+if (not user) and not st.session_state.guest:
+    login_ui()
     st.stop()
 
-# ---------------- LOAD CHAT ----------------
-if st.session_state.current_chat_id:
-    messages = load_chat_messages(st.session_state.current_chat_id)
-else:
-    messages = []
+# -------------------- SIDEBAR --------------------
+st.sidebar.success(f"Logged in as {user['username']}" if user else "Guest")
 
-# ---------------- DISPLAY ----------------
-for m in messages:
-    if m["role"] == "user":
-        with st.chat_message("user"):
-            st.markdown(m["content"])
-    else:
-        with st.chat_message("assistant"):
-            st.markdown(m["content"])
+if st.sidebar.button("Logout"):
+    st.session_state.clear()
+    sign_out()
+    st.rerun()
 
-# ---------------- INPUT ----------------
-q = st.chat_input("Ask about this PDF")
+mode = st.sidebar.radio("Mode", ["📘 PDF Analyzer", "🖼 Image Q&A"])
 
-if q:
-    save_message(st.session_state.current_chat_id, "user", q)
+# -------------------- CHAT SIDEBAR --------------------
+st.sidebar.markdown("## 💬 Chats")
 
-    docs = st.session_state.vector_db.similarity_search(q, k=5)
-    llm = load_llm()
+if st.sidebar.button("➕ New Chat"):
+    create_chat()
+    st.rerun()
 
-    prompt = ChatPromptTemplate.from_template("""
+for cid in st.session_state.chats:
+    if st.sidebar.button(f"Chat {cid}", key=cid):
+        st.session_state.current_chat = cid
+        st.rerun()
+
+if not st.session_state.current_chat:
+    create_chat()
+
+chat = st.session_state.chats[st.session_state.current_chat]
+
+# ==================== PDF ANALYZER ====================
+if mode == "📘 PDF Analyzer":
+    st.markdown("## 📘 PDF Analyzer")
+
+    pdfs = st.file_uploader("Upload PDFs", type="pdf", accept_multiple_files=True)
+
+    if pdfs and chat["vector_db"] is None:
+        with st.spinner("Processing PDFs..."):
+            all_chunks, metadatas = [], []
+            splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=80)
+
+            for pdf in pdfs:
+                reader = PdfReader(pdf)
+                for i, page in enumerate(reader.pages, 1):
+                    txt = page.extract_text()
+                    if txt:
+                        chunks = splitter.split_text(txt)
+                        for ch in chunks:
+                            all_chunks.append(ch)
+                            metadatas.append({"page": i, "pdf": pdf.name})
+
+            embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+            chat["vector_db"] = FAISS.from_texts(all_chunks, embeddings, metadatas=metadatas)
+
+    q = st.chat_input("Ask about PDFs...")
+
+    if q and chat["vector_db"]:
+        llm = load_llm()
+        docs = chat["vector_db"].similarity_search(q, k=5)
+
+        prompt = ChatPromptTemplate.from_template("""
 Context:
 {context}
 
@@ -200,16 +224,44 @@ Question:
 
 Rules:
 - Answer only from document
-- If not found say: Information not found in document
+- If not found say: Information not found in the document
 """)
 
-    chain = create_stuff_documents_chain(llm, prompt)
-    res = chain.invoke({"context": docs, "question": q})
+        chain = create_stuff_documents_chain(llm, prompt)
+        res = chain.invoke({"context": docs, "question": q})
+        ans = res.get("output_text", "") if isinstance(res, dict) else res
 
-    if isinstance(res, dict):
-        ans = res.get("output_text","")
-    else:
-        ans = res
+        chat["history"].append(("user", q))
+        chat["history"].append(("assistant", ans))
 
-    save_message(st.session_state.current_chat_id, "assistant", ans)
-    st.rerun()
+# ==================== IMAGE Q&A ====================
+if mode == "🖼 Image Q&A":
+    st.markdown("## 🖼 Image Q&A")
+
+    img_file = st.file_uploader("Upload Image", type=["png","jpg","jpeg"])
+    if img_file:
+        img = Image.open(img_file).convert("RGB")
+        st.image(img, use_column_width=True)
+
+        q = st.chat_input("Ask about image...")
+        if q:
+            processor, model, device = load_blip()
+            inputs = processor(img, q, return_tensors="pt").to(device)
+            outputs = model.generate(**inputs, max_length=10)
+            short = processor.decode(outputs[0], skip_special_tokens=True)
+
+            llm = load_llm()
+            refined = llm.invoke(f"Question:{q}\nVision:{short}\nMake one clean sentence.").content
+
+            chat["history"].append(("user", q))
+            chat["history"].append(("assistant", refined))
+
+# ==================== CHAT DISPLAY ====================
+st.markdown("## 💬 Conversation")
+
+for role, msg in chat["history"]:
+    with st.chat_message(role):
+        if role == "assistant":
+            render_answer_with_copy(msg)
+        else:
+            st.markdown(msg)
