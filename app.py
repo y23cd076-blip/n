@@ -9,7 +9,7 @@ from PIL import Image
 import torch
 
 # ================= FIXED LANGCHAIN IMPORTS =================
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.chains.combine_documents import create_stuff_documents_chain
