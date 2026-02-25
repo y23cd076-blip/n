@@ -4,10 +4,9 @@ requests
 PyPDF2
 Pillow
 torch
+langchain
+langchain-community
+langchain-huggingface
+langchain-google-genai
 transformers
 faiss-cpu
-langchain-text-splitters
-langchain-huggingface
-langchain-community
-langchain-google-genai
-sentence-transformers
