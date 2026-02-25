@@ -4,11 +4,16 @@ import requests, json, os, time, hashlib
 from typing import Any, Dict, Optional, List
 import streamlit.components.v1 as components
 
-from PyPDF2 import PdfReader
+# ---------- PDF READER FIX ----------
+try:
+    from PyPDF2 import PdfReader
+except ModuleNotFoundError:
+    from pypdf import PdfReader
+
 from PIL import Image
 import torch
 
-# LangChain (correct imports)
+# ---------- LANGCHAIN FIXED IMPORTS ----------
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
@@ -26,28 +31,31 @@ SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 USER_PROFILES_TABLE = "user_profiles"
 
 if not SUPABASE_URL or not SUPABASE_ANON_KEY:
-    st.error("Missing Supabase configuration. Add SUPABASE_URL and SUPABASE_ANON_KEY in Streamlit secrets.")
+    st.error("Missing Supabase configuration. Set SUPABASE_URL and SUPABASE_ANON_KEY")
     st.stop()
 
-# -------------------- AUTH HELPERS --------------------
+# -------------------- SUPABASE HELPERS --------------------
 def _auth_headers():
-    return {"apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json"}
+    return {
+        "apikey": SUPABASE_ANON_KEY,
+        "Content-Type": "application/json",
+    }
 
 def _rest_request(method: str, path: str, **kwargs):
     url = f"{SUPABASE_URL}{path}"
     return requests.request(method, url, headers=_auth_headers(), timeout=10, **kwargs)
 
-def set_session(user: Dict[str, Any]):
+def _hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+def set_session(user):
     st.session_state["session"] = {"user": user}
 
 def current_user():
     sess = st.session_state.get("session")
     return sess["user"] if sess else None
 
-def _hash_password(password: str):
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def sign_up(username: str, password: str):
+def sign_up(username, password):
     if len(password) < 6:
         return "Password must be at least 6 characters."
     resp = _rest_request("GET", f"/rest/v1/{USER_PROFILES_TABLE}?select=username&username=eq.{username}")
@@ -57,7 +65,7 @@ def sign_up(username: str, password: str):
     _rest_request("POST", f"/rest/v1/{USER_PROFILES_TABLE}", json=payload)
     return None
 
-def sign_in(username: str, password: str):
+def sign_in(username, password):
     resp = _rest_request("GET", f"/rest/v1/{USER_PROFILES_TABLE}?select=id,username,password_hash&username=eq.{username}")
     rows = resp.json()
     if not rows:
@@ -84,8 +92,8 @@ def type_text(text, speed=0.03):
         box.markdown(f"### {out}")
         time.sleep(speed)
 
-# 🔹 SMALL COPY BUTTON
-def render_answer_with_copy(answer: str, key_suffix: str):
+# ---------- SMALL COPY BUTTON ----------
+def render_answer_with_copy(answer: str):
     st.markdown(answer)
     safe_text = json.dumps(answer)
     components.html(
@@ -99,17 +107,10 @@ def render_answer_with_copy(answer: str, key_suffix: str):
             cursor: pointer;
             background: #f7f7f7;
         }}
-        .copy-btn:hover {{
-            background: #eaeaea;
-        }}
         </style>
-
-        <button class="copy-btn"
-            onclick="navigator.clipboard.writeText({safe_text});">
-            📋
-        </button>
+        <button class="copy-btn" onclick="navigator.clipboard.writeText({safe_text});">📋</button>
         """,
-        height=26,
+        height=28,
     )
 
 # -------------------- MODELS --------------------
@@ -124,16 +125,14 @@ def load_blip():
     model = BlipForQuestionAnswering.from_pretrained("Salesforce/blip-vqa-base").to(device)
     return processor, model, device
 
-# -------------------- SESSION --------------------
+# -------------------- SESSION DEFAULTS --------------------
 defaults = {
     "vector_db": None,
     "chat_history": [],
     "current_pdf_id": None,
     "guest": False,
     "history_loaded": False,
-    "chat_title": None,
 }
-
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -156,8 +155,8 @@ def login_ui():
                 else: st.rerun()
 
         with tab2:
-            u = st.text_input("New Username")
-            p = st.text_input("New Password", type="password")
+            u = st.text_input("Username", key="su")
+            p = st.text_input("Password", type="password", key="sp")
             if st.button("Create Account"):
                 err = sign_up(u, p)
                 if err: st.error(err)
@@ -175,63 +174,67 @@ if not user and not st.session_state.get("guest"):
     st.stop()
 
 # -------------------- SIDEBAR --------------------
-label = f"Logged in as {user['username']}" if user else "Logged in as Guest"
-st.sidebar.success(label)
+st.sidebar.success(f"Logged in as {user['username'] if user else 'Guest'}")
 
 if st.sidebar.button("Logout"):
-    for k in defaults:
-        st.session_state[k] = defaults[k]
-    st.session_state["guest"] = False
     sign_out()
+    st.session_state.clear()
     st.rerun()
 
 mode = st.sidebar.radio("Mode", ["📘 PDF Analyzer", "🖼 Image Q&A"])
 
-# -------------------- CHAT HISTORY SIDEBAR --------------------
+# -------------------- CHAT HISTORY --------------------
 st.sidebar.markdown("### 💬 Chat History")
 
+def delete_chat_from_db(question):
+    if st.session_state.get("guest"):
+        return
+    user = current_user()
+    if not user:
+        return
+    username = user["username"]
+    _rest_request(
+        "DELETE",
+        "/rest/v1/chat_history"
+        f"?username=eq.{username}"
+        f"&question=eq.{question}"
+        "&mode=eq.pdf"
+    )
+
 if st.session_state.chat_history:
+    items = list(reversed(st.session_state.chat_history))
+    labels = [q for q, _ in items]
 
-    chat_names = []
-    for i, (q, a) in enumerate(st.session_state.chat_history):
-        name = q[:40] + "..." if len(q) > 40 else q
-        chat_names.append(f"{i+1}. {name}")
+    selected = st.sidebar.selectbox("Chats", labels)
 
-    selected = st.sidebar.selectbox("Chats", chat_names)
+    if selected:
+        idx = next(i for i,(q,_) in enumerate(st.session_state.chat_history) if q==selected)
+        q,a = st.session_state.chat_history[idx]
 
-    idx = int(selected.split(".")[0]) - 1
-    q_sel, a_sel = st.session_state.chat_history[idx]
+        with st.sidebar.expander("Chat Preview", True):
+            st.markdown("**You**")
+            st.write(q)
+            st.markdown("**Assistant**")
+            st.write(a)
 
-    with st.sidebar.expander("📄 Chat Preview", expanded=True):
-        st.markdown("**You**")
-        st.write(q_sel)
-        st.markdown("**Assistant**")
-        st.write(a_sel)
-
-    col1, col2 = st.sidebar.columns(2)
-    with col1:
-        if st.button("🗑 Delete Chat"):
+        if st.sidebar.button("🗑 Delete Chat"):
+            delete_chat_from_db(q)
             del st.session_state.chat_history[idx]
             st.rerun()
 
-    with col2:
-        if st.button("🧹 Clear All"):
-            st.session_state.chat_history = []
-            st.session_state.chat_title = None
-            st.rerun()
-else:
-    st.sidebar.caption("No chats yet")
-
-# ==================== PDF ANALYZER ====================
+# ==================== PDF MODE ====================
 if mode == "📘 PDF Analyzer":
-    st.markdown("## 📘 PDF Analyzer")
+
+    st.title("📘 PDF Analyzer")
     pdf = st.file_uploader("Upload PDF", type="pdf")
 
     if pdf:
         pdf_id = f"{pdf.name}_{pdf.size}"
+
         if st.session_state.current_pdf_id != pdf_id:
             st.session_state.current_pdf_id = pdf_id
-            st.session_state.vector_db = None   # multi-pdf support
+            st.session_state.vector_db = None
+            st.session_state.chat_history = []
 
         if st.session_state.vector_db is None:
             with st.spinner("Processing PDF..."):
@@ -239,7 +242,7 @@ if mode == "📘 PDF Analyzer":
                 text = ""
                 for p in reader.pages:
                     if p.extract_text():
-                        text += p.extract_text() + "\n"
+                        text += p.extract_text()
 
                 splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=80)
                 chunks = splitter.split_text(text)
@@ -247,7 +250,8 @@ if mode == "📘 PDF Analyzer":
                 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
                 st.session_state.vector_db = FAISS.from_texts(chunks, embeddings)
 
-        q = st.chat_input("Ask a question about this PDF")
+        q = st.chat_input("Ask something about the PDF")
+
         if q:
             llm = load_llm()
             docs = st.session_state.vector_db.similarity_search(q, k=5)
@@ -266,40 +270,36 @@ Rules:
 
             chain = create_stuff_documents_chain(llm, prompt)
             res = chain.invoke({"context": docs, "question": q})
-            answer = res["output_text"] if isinstance(res, dict) else res
 
+            answer = res.get("output_text","") if isinstance(res,dict) else res
             st.session_state.chat_history.append((q, answer))
 
-            # auto chat name
-            if len(st.session_state.chat_history) == 1:
-                st.session_state.chat_title = q[:60]
+        st.markdown("## 💬 Conversation")
+        for uq,ua in reversed(st.session_state.chat_history):
+            with st.chat_message("user"):
+                st.markdown(uq)
+            with st.chat_message("assistant"):
+                render_answer_with_copy(ua)
 
-    st.markdown("## 💬 Conversation")
-    for uq, ua in reversed(st.session_state.chat_history):
-        with st.chat_message("user"):
-            st.markdown(uq)
-        with st.chat_message("assistant"):
-            render_answer_with_copy(ua, key_suffix="pdf")
-
-# ==================== IMAGE Q&A ====================
+# ==================== IMAGE MODE ====================
 if mode == "🖼 Image Q&A":
-    st.markdown("## 🖼 Image Q&A")
-    img_file = st.file_uploader("Upload Image", type=["png", "jpg", "jpeg"])
+    st.title("🖼 Image Q&A")
+
+    img_file = st.file_uploader("Upload Image", type=["png","jpg","jpeg"])
 
     if img_file:
         img = Image.open(img_file).convert("RGB")
         st.image(img, use_column_width=True)
 
-        question = st.text_input("Ask a question about the image")
-        if question:
-            with st.spinner("Analyzing image..."):
-                processor, model, device = load_blip()
-                inputs = processor(img, question, return_tensors="pt").to(device)
-                outputs = model.generate(**inputs, max_length=15)
-                short_answer = processor.decode(outputs[0], skip_special_tokens=True)
+        q = st.text_input("Ask a question about the image")
+        if q:
+            processor, model, device = load_blip()
+            inputs = processor(img, q, return_tensors="pt").to(device)
+            outputs = model.generate(**inputs, max_length=20)
+            short = processor.decode(outputs[0], skip_special_tokens=True)
 
-                llm = load_llm()
-                final = llm.invoke(f"Question: {question}\nVision Answer: {short_answer}\nReturn one clear sentence.")
-                ans = final.content
+            llm = load_llm()
+            final = llm.invoke(f"Convert into one clear sentence:\n{short}").content
 
-            render_answer_with_copy(ans, key_suffix="img")
+            st.success("Answer:")
+            render_answer_with_copy(final)
