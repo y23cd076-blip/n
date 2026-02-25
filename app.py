@@ -1,21 +1,20 @@
 import streamlit as st
 from streamlit_lottie import st_lottie
-import requests, json, os, time, hashlib, uuid
+import requests, json, os, time, hashlib
 from typing import Any, Dict, Optional, List
 import streamlit.components.v1 as components
 
-from pypdf import PdfReader
+from PyPDF2 import PdfReader
 from PIL import Image
 import torch
 
-# ================= FIXED LANGCHAIN IMPORTS =================
+# LangChain (correct imports)
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
-# ==========================================================
 
 from transformers import BlipProcessor, BlipForQuestionAnswering
 
@@ -27,40 +26,38 @@ SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 USER_PROFILES_TABLE = "user_profiles"
 
 if not SUPABASE_URL or not SUPABASE_ANON_KEY:
-    st.error("Missing Supabase configuration.")
+    st.error("Missing Supabase configuration. Add SUPABASE_URL and SUPABASE_ANON_KEY in Streamlit secrets.")
     st.stop()
 
 # -------------------- AUTH HELPERS --------------------
-def _auth_headers() -> Dict[str, str]:
+def _auth_headers():
     return {"apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json"}
 
-def _rest_request(method: str, path: str, **kwargs) -> requests.Response:
+def _rest_request(method: str, path: str, **kwargs):
     url = f"{SUPABASE_URL}{path}"
     return requests.request(method, url, headers=_auth_headers(), timeout=10, **kwargs)
 
-def set_session(user: Dict[str, Any]) -> None:
+def set_session(user: Dict[str, Any]):
     st.session_state["session"] = {"user": user}
 
-def current_user() -> Optional[Dict[str, Any]]:
+def current_user():
     sess = st.session_state.get("session")
     return sess["user"] if sess else None
 
-def _hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+def _hash_password(password: str):
+    return hashlib.sha256(password.encode()).hexdigest()
 
-def sign_up(username: str, password: str) -> Optional[str]:
+def sign_up(username: str, password: str):
     if len(password) < 6:
         return "Password must be at least 6 characters."
-
     resp = _rest_request("GET", f"/rest/v1/{USER_PROFILES_TABLE}?select=username&username=eq.{username}")
     if resp.json():
         return "Username already exists."
-
     payload = {"username": username, "password_hash": _hash_password(password)}
     _rest_request("POST", f"/rest/v1/{USER_PROFILES_TABLE}", json=payload)
     return None
 
-def sign_in(username: str, password: str) -> Optional[str]:
+def sign_in(username: str, password: str):
     resp = _rest_request("GET", f"/rest/v1/{USER_PROFILES_TABLE}?select=id,username,password_hash&username=eq.{username}")
     rows = resp.json()
     if not rows:
@@ -68,7 +65,6 @@ def sign_in(username: str, password: str) -> Optional[str]:
     row = rows[0]
     if row["password_hash"] != _hash_password(password):
         return "Invalid username or password."
-
     set_session({"id": row["id"], "username": row["username"]})
     return None
 
@@ -80,14 +76,40 @@ def load_lottie(url):
     r = requests.get(url)
     return r.json() if r.status_code == 200 else None
 
-def render_answer_with_copy(answer: str):
+def type_text(text, speed=0.03):
+    box = st.empty()
+    out = ""
+    for c in text:
+        out += c
+        box.markdown(f"### {out}")
+        time.sleep(speed)
+
+# 🔹 SMALL COPY BUTTON
+def render_answer_with_copy(answer: str, key_suffix: str):
     st.markdown(answer)
     safe_text = json.dumps(answer)
     components.html(
-        f"""<button onclick="navigator.clipboard.writeText({safe_text});"
-        style="margin-top:4px;padding:4px 10px;border-radius:4px;border:1px solid #ccc;cursor:pointer;">
-        Copy</button>""",
-        height=40,
+        f"""
+        <style>
+        .copy-btn {{
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            cursor: pointer;
+            background: #f7f7f7;
+        }}
+        .copy-btn:hover {{
+            background: #eaeaea;
+        }}
+        </style>
+
+        <button class="copy-btn"
+            onclick="navigator.clipboard.writeText({safe_text});">
+            📋
+        </button>
+        """,
+        height=26,
     )
 
 # -------------------- MODELS --------------------
@@ -102,33 +124,27 @@ def load_blip():
     model = BlipForQuestionAnswering.from_pretrained("Salesforce/blip-vqa-base").to(device)
     return processor, model, device
 
-# -------------------- SESSION DEFAULTS --------------------
-if "chats" not in st.session_state:
-    st.session_state.chats = {}   # chat_id -> {history, vector_db}
+# -------------------- SESSION --------------------
+defaults = {
+    "vector_db": None,
+    "chat_history": [],
+    "current_pdf_id": None,
+    "guest": False,
+    "history_loaded": False,
+    "chat_title": None,
+}
 
-if "current_chat" not in st.session_state:
-    st.session_state.current_chat = None
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
-if "guest" not in st.session_state:
-    st.session_state.guest = False
-
-# -------------------- CHAT FUNCTIONS --------------------
-def create_chat():
-    cid = str(uuid.uuid4())[:8]
-    st.session_state.chats[cid] = {
-        "history": [],
-        "vector_db": None
-    }
-    st.session_state.current_chat = cid
-
-# -------------------- AUTH UI --------------------
+# -------------------- LOGIN UI --------------------
 def login_ui():
     col1, col2 = st.columns(2)
     with col1:
         st_lottie(load_lottie("https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json"), height=300)
-
     with col2:
-        st.markdown("## 🔐 Welcome to SlideSense")
+        type_text("🔐 Welcome to SlideSense")
         tab1, tab2, tab3 = st.tabs(["Login", "Sign Up", "Guest"])
 
         with tab1:
@@ -140,82 +156,103 @@ def login_ui():
                 else: st.rerun()
 
         with tab2:
-            u = st.text_input("Username", key="su")
-            p = st.text_input("Password", type="password", key="sp")
+            u = st.text_input("New Username")
+            p = st.text_input("New Password", type="password")
             if st.button("Create Account"):
                 err = sign_up(u, p)
                 if err: st.error(err)
                 else: st.success("Account created!")
 
         with tab3:
-            if st.button("Continue as guest"):
-                st.session_state.guest = True
+            if st.button("Continue as Guest"):
+                st.session_state["guest"] = True
                 st.rerun()
 
 # -------------------- AUTH CHECK --------------------
 user = current_user()
-if (not user) and not st.session_state.guest:
+if not user and not st.session_state.get("guest"):
     login_ui()
     st.stop()
 
 # -------------------- SIDEBAR --------------------
-st.sidebar.success(f"Logged in as {user['username']}" if user else "Guest")
+label = f"Logged in as {user['username']}" if user else "Logged in as Guest"
+st.sidebar.success(label)
 
 if st.sidebar.button("Logout"):
-    st.session_state.clear()
+    for k in defaults:
+        st.session_state[k] = defaults[k]
+    st.session_state["guest"] = False
     sign_out()
     st.rerun()
 
 mode = st.sidebar.radio("Mode", ["📘 PDF Analyzer", "🖼 Image Q&A"])
 
-# -------------------- CHAT SIDEBAR --------------------
-st.sidebar.markdown("## 💬 Chats")
+# -------------------- CHAT HISTORY SIDEBAR --------------------
+st.sidebar.markdown("### 💬 Chat History")
 
-if st.sidebar.button("➕ New Chat"):
-    create_chat()
-    st.rerun()
+if st.session_state.chat_history:
 
-for cid in st.session_state.chats:
-    if st.sidebar.button(f"Chat {cid}", key=cid):
-        st.session_state.current_chat = cid
-        st.rerun()
+    chat_names = []
+    for i, (q, a) in enumerate(st.session_state.chat_history):
+        name = q[:40] + "..." if len(q) > 40 else q
+        chat_names.append(f"{i+1}. {name}")
 
-if not st.session_state.current_chat:
-    create_chat()
+    selected = st.sidebar.selectbox("Chats", chat_names)
 
-chat = st.session_state.chats[st.session_state.current_chat]
+    idx = int(selected.split(".")[0]) - 1
+    q_sel, a_sel = st.session_state.chat_history[idx]
+
+    with st.sidebar.expander("📄 Chat Preview", expanded=True):
+        st.markdown("**You**")
+        st.write(q_sel)
+        st.markdown("**Assistant**")
+        st.write(a_sel)
+
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        if st.button("🗑 Delete Chat"):
+            del st.session_state.chat_history[idx]
+            st.rerun()
+
+    with col2:
+        if st.button("🧹 Clear All"):
+            st.session_state.chat_history = []
+            st.session_state.chat_title = None
+            st.rerun()
+else:
+    st.sidebar.caption("No chats yet")
 
 # ==================== PDF ANALYZER ====================
 if mode == "📘 PDF Analyzer":
     st.markdown("## 📘 PDF Analyzer")
+    pdf = st.file_uploader("Upload PDF", type="pdf")
 
-    pdfs = st.file_uploader("Upload PDFs", type="pdf", accept_multiple_files=True)
+    if pdf:
+        pdf_id = f"{pdf.name}_{pdf.size}"
+        if st.session_state.current_pdf_id != pdf_id:
+            st.session_state.current_pdf_id = pdf_id
+            st.session_state.vector_db = None   # multi-pdf support
 
-    if pdfs and chat["vector_db"] is None:
-        with st.spinner("Processing PDFs..."):
-            all_chunks, metadatas = [], []
-            splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=80)
-
-            for pdf in pdfs:
+        if st.session_state.vector_db is None:
+            with st.spinner("Processing PDF..."):
                 reader = PdfReader(pdf)
-                for i, page in enumerate(reader.pages, 1):
-                    txt = page.extract_text()
-                    if txt:
-                        chunks = splitter.split_text(txt)
-                        for ch in chunks:
-                            all_chunks.append(ch)
-                            metadatas.append({"page": i, "pdf": pdf.name})
+                text = ""
+                for p in reader.pages:
+                    if p.extract_text():
+                        text += p.extract_text() + "\n"
 
-            embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-            chat["vector_db"] = FAISS.from_texts(all_chunks, embeddings, metadatas=metadatas)
+                splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=80)
+                chunks = splitter.split_text(text)
 
-    q = st.chat_input("Ask about PDFs...")
+                embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+                st.session_state.vector_db = FAISS.from_texts(chunks, embeddings)
 
-    if q and chat["vector_db"]:
-        llm = load_llm()
-        docs = chat["vector_db"].similarity_search(q, k=5)
+        q = st.chat_input("Ask a question about this PDF")
+        if q:
+            llm = load_llm()
+            docs = st.session_state.vector_db.similarity_search(q, k=5)
 
-        prompt = ChatPromptTemplate.from_template("""
+            prompt = ChatPromptTemplate.from_template("""
 Context:
 {context}
 
@@ -227,41 +264,42 @@ Rules:
 - If not found say: Information not found in the document
 """)
 
-        chain = create_stuff_documents_chain(llm, prompt)
-        res = chain.invoke({"context": docs, "question": q})
-        ans = res.get("output_text", "") if isinstance(res, dict) else res
+            chain = create_stuff_documents_chain(llm, prompt)
+            res = chain.invoke({"context": docs, "question": q})
+            answer = res["output_text"] if isinstance(res, dict) else res
 
-        chat["history"].append(("user", q))
-        chat["history"].append(("assistant", ans))
+            st.session_state.chat_history.append((q, answer))
+
+            # auto chat name
+            if len(st.session_state.chat_history) == 1:
+                st.session_state.chat_title = q[:60]
+
+    st.markdown("## 💬 Conversation")
+    for uq, ua in reversed(st.session_state.chat_history):
+        with st.chat_message("user"):
+            st.markdown(uq)
+        with st.chat_message("assistant"):
+            render_answer_with_copy(ua, key_suffix="pdf")
 
 # ==================== IMAGE Q&A ====================
 if mode == "🖼 Image Q&A":
     st.markdown("## 🖼 Image Q&A")
+    img_file = st.file_uploader("Upload Image", type=["png", "jpg", "jpeg"])
 
-    img_file = st.file_uploader("Upload Image", type=["png","jpg","jpeg"])
     if img_file:
         img = Image.open(img_file).convert("RGB")
         st.image(img, use_column_width=True)
 
-        q = st.chat_input("Ask about image...")
-        if q:
-            processor, model, device = load_blip()
-            inputs = processor(img, q, return_tensors="pt").to(device)
-            outputs = model.generate(**inputs, max_length=10)
-            short = processor.decode(outputs[0], skip_special_tokens=True)
+        question = st.text_input("Ask a question about the image")
+        if question:
+            with st.spinner("Analyzing image..."):
+                processor, model, device = load_blip()
+                inputs = processor(img, question, return_tensors="pt").to(device)
+                outputs = model.generate(**inputs, max_length=15)
+                short_answer = processor.decode(outputs[0], skip_special_tokens=True)
 
-            llm = load_llm()
-            refined = llm.invoke(f"Question:{q}\nVision:{short}\nMake one clean sentence.").content
+                llm = load_llm()
+                final = llm.invoke(f"Question: {question}\nVision Answer: {short_answer}\nReturn one clear sentence.")
+                ans = final.content
 
-            chat["history"].append(("user", q))
-            chat["history"].append(("assistant", refined))
-
-# ==================== CHAT DISPLAY ====================
-st.markdown("## 💬 Conversation")
-
-for role, msg in chat["history"]:
-    with st.chat_message(role):
-        if role == "assistant":
-            render_answer_with_copy(msg)
-        else:
-            st.markdown(msg)
+            render_answer_with_copy(ans, key_suffix="img")
