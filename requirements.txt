@@ -4,10 +4,11 @@ requests
 PyPDF2
 Pillow
 torch
-langchain
+langchain==0.2.16
+langchain-core==0.2.38
+langchain-community==0.2.16
 langchain-text-splitters
 langchain-huggingface
-langchain-community
 langchain-google-genai
 faiss-cpu
 transformers
