@@ -16,8 +16,6 @@ from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_core.messages import HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from transformers import BlipProcessor, BlipForQuestionAnswering
-
 
 # -------------------- CONFIG --------------------
 st.set_page_config(page_title="SlideSense", page_icon="📘", layout="wide")
@@ -76,31 +74,36 @@ def hash_password(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
 
 def load_lottie(url):
-    r = requests.get(url)
-    return r.json() if r.status_code == 200 else None
+    try:
+        r = requests.get(url)
+        return r.json() if r.status_code == 200 else None
+    except:
+        return None
 
-def type_text(text, speed=0.02):
-    box = st.empty()
-    out = ""
-    for c in text:
-        out += c
-        box.markdown(f"### {out}")
-        time.sleep(speed)
+def type_text(text, speed=0.01):
+    st.markdown(f"### {text}")
 
 
-# -------------------- CACHED MODELS --------------------
+# -------------------- SAFE API KEY --------------------
+def get_google_key():
+    if "GOOGLE_API_KEY" in st.secrets:
+        return st.secrets["GOOGLE_API_KEY"]
+    return os.getenv("GOOGLE_API_KEY")
+
+
+# -------------------- LLM --------------------
 @st.cache_resource
 def load_llm():
+    key = get_google_key()
+    if not key:
+        st.error("❌ GOOGLE_API_KEY missing in Streamlit secrets")
+        st.stop()
+
     return ChatGoogleGenerativeAI(
         model="gemini-2.0-flash",
         temperature=0.3,
         max_output_tokens=2048,
-        # ✅ FIXED (no silent crash anymore)
-        google_api_key=(
-            st.secrets["GOOGLE_API_KEY"]
-            if "GOOGLE_API_KEY" in st.secrets
-            else os.getenv("GOOGLE_API_KEY")
-        ),
+        google_api_key=key,
     )
 
 
@@ -110,23 +113,76 @@ def invoke_llm(prompt_text: str):
         msg = llm.invoke([HumanMessage(content=prompt_text)])
         return msg.content if hasattr(msg, "content") else str(msg)
     except Exception as e:
-        if type(e).__name__ == "ChatGoogleGenerativeAIError":
-            raise ValueError(
-                "Gemini API error. Set GOOGLE_API_KEY in Streamlit Cloud secrets (or env) and ensure the key is valid."
-            ) from e
-        err = str(e).lower()
-        if "api_key" in err or "invalid" in err or "403" in err:
-            raise ValueError(
-                "Google API error: Set GOOGLE_API_KEY in your environment (e.g. Streamlit Cloud secrets)."
-            ) from e
-        raise
+        st.error(f"Gemini Error: {e}")
+        return None
 
 
+# -------------------- SAFE BLIP (LAZY LOAD) --------------------
 @st.cache_resource
 def load_blip():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    processor = BlipProcessor.from_pretrained("Salesforce/blip-vqa-base")
-    model = BlipForQuestionAnswering.from_pretrained(
-        "Salesforce/blip-vqa-base"
-    ).to(device)
-    return processor, model, device
+    try:
+        from transformers import BlipProcessor, BlipForQuestionAnswering
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        processor = BlipProcessor.from_pretrained("Salesforce/blip-vqa-base")
+        model = BlipForQuestionAnswering.from_pretrained(
+            "Salesforce/blip-vqa-base"
+        ).to(device)
+        return processor, model, device
+    except Exception as e:
+        st.error("⚠️ Image model failed to load (transformers issue)")
+        return None, None, None
+
+
+def answer_image_question(image, question):
+    processor, model, device = load_blip()
+    if processor is None:
+        return "Image model not available."
+
+    inputs = processor(image, question, return_tensors="pt").to(device)
+    outputs = model.generate(**inputs, max_length=30)
+
+    short_answer = processor.decode(outputs[0], skip_special_tokens=True)
+
+    return invoke_llm(f"Question: {question}\nAnswer: {short_answer}")
+
+
+# -------------------- BASIC UI (to prevent blank screen) --------------------
+st.title("📘 SlideSense")
+
+st.success("✅ App Loaded Successfully")
+
+
+mode = st.radio("Choose Mode", ["PDF", "Image"])
+
+# -------------------- PDF --------------------
+if mode == "PDF":
+    pdf = st.file_uploader("Upload PDF", type="pdf")
+
+    if pdf:
+        reader = PdfReader(pdf)
+        text = ""
+        for page in reader.pages:
+            if page.extract_text():
+                text += page.extract_text()
+
+        question = st.text_input("Ask question")
+
+        if question:
+            answer = invoke_llm(text[:3000] + "\n\n" + question)
+            if answer:
+                st.write(answer)
+
+
+# -------------------- IMAGE --------------------
+if mode == "Image":
+    img_file = st.file_uploader("Upload Image", type=["png", "jpg", "jpeg"])
+
+    if img_file:
+        img = Image.open(img_file)
+        st.image(img)
+
+        question = st.text_input("Ask about image")
+
+        if question:
+            answer = answer_image_question(img, question)
+            st.write(answer)
