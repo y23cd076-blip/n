@@ -95,8 +95,12 @@ def load_llm():
         model="gemini-2.0-flash",
         temperature=0.3,
         max_output_tokens=2048,
-        # ✅ FIXED LINE (ONLY CHANGE)
-        google_api_key=st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY"),
+        # ✅ FIXED (no silent crash anymore)
+        google_api_key=(
+            st.secrets["GOOGLE_API_KEY"]
+            if "GOOGLE_API_KEY" in st.secrets
+            else os.getenv("GOOGLE_API_KEY")
+        ),
     )
 
 
@@ -116,6 +120,7 @@ def invoke_llm(prompt_text: str):
                 "Google API error: Set GOOGLE_API_KEY in your environment (e.g. Streamlit Cloud secrets)."
             ) from e
         raise
+
 
 @st.cache_resource
 def load_blip():
