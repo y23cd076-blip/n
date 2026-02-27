@@ -1,5 +1,12 @@
 import streamlit as st
-from streamlit_lottie import st_lottie
+
+# ✅ FIX: Safe import for streamlit_lottie (prevents crash)
+try:
+    from streamlit_lottie import st_lottie
+except ImportError:
+    def st_lottie(*args, **kwargs):
+        pass
+
 import requests, json, os, time, hashlib, uuid
 from PyPDF2 import PdfReader
 from PIL import Image
@@ -16,7 +23,12 @@ from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_core.messages import HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from transformers import BlipProcessor, BlipForQuestionAnswering
+# ✅ FIX: Safe import for transformers (prevents crash)
+try:
+    from transformers import BlipProcessor, BlipForQuestionAnswering
+except ImportError:
+    BlipProcessor = None
+    BlipForQuestionAnswering = None
 
 
 # -------------------- CONFIG --------------------
@@ -95,7 +107,7 @@ def load_llm():
         model="gemini-2.0-flash",
         temperature=0.3,
         max_output_tokens=2048,
-        # ✅ FIXED LINE (ONLY CHANGE)
+        # ✅ FIXED GOOGLE KEY FOR STREAMLIT CLOUD
         google_api_key=st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY"),
     )
 
@@ -106,22 +118,65 @@ def invoke_llm(prompt_text: str):
         msg = llm.invoke([HumanMessage(content=prompt_text)])
         return msg.content if hasattr(msg, "content") else str(msg)
     except Exception as e:
-        if type(e).__name__ == "ChatGoogleGenerativeAIError":
-            raise ValueError(
-                "Gemini API error. Set GOOGLE_API_KEY in Streamlit Cloud secrets (or env) and ensure the key is valid."
-            ) from e
-        err = str(e).lower()
-        if "api_key" in err or "invalid" in err or "403" in err:
-            raise ValueError(
-                "Google API error: Set GOOGLE_API_KEY in your environment (e.g. Streamlit Cloud secrets)."
-            ) from e
-        raise
+        raise ValueError("Gemini API error. Check GOOGLE_API_KEY.") from e
+
 
 @st.cache_resource
 def load_blip():
+    # ✅ Prevent crash if transformers not installed
+    if BlipProcessor is None or BlipForQuestionAnswering is None:
+        return None, None, "cpu"
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     processor = BlipProcessor.from_pretrained("Salesforce/blip-vqa-base")
     model = BlipForQuestionAnswering.from_pretrained(
         "Salesforce/blip-vqa-base"
     ).to(device)
     return processor, model, device
+
+
+# -------------------- SESSION DEFAULTS --------------------
+def _default_chats():
+    return [{"id": "0", "title": "New chat", "messages": []}]
+
+defaults = {
+    "authenticated": False,
+    "guest": False,
+    "welcome_done": False,
+    "users": load_users(),
+    "vector_db": None,
+    "current_pdf_id": None,
+    "chats": _default_chats(),
+    "current_chat_id": "0",
+}
+
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+def get_current_chat():
+    cid = st.session_state.current_chat_id
+    for c in st.session_state.chats:
+        if c["id"] == cid:
+            return c
+    return st.session_state.chats[0]
+
+def add_message_to_current_chat(question: str, answer: str):
+    chat = get_current_chat()
+    chat["messages"].append((question, answer))
+
+
+# -------------------- IMAGE Q&A --------------------
+def answer_image_question(image, question):
+    processor, model, device = load_blip()
+
+    # ✅ fallback if model unavailable
+    if processor is None:
+        return "Image model not available in deployment."
+
+    inputs = processor(image, question, return_tensors="pt").to(device)
+    outputs = model.generate(**inputs, max_length=30)
+
+    short_answer = processor.decode(outputs[0], skip_special_tokens=True)
+
+    return invoke_llm(f"Question: {question}\nAnswer: {short_answer}")
