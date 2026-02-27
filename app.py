@@ -1,182 +1,247 @@
 import streamlit as st
-
-# ✅ FIX: Safe import for streamlit_lottie (prevents crash)
-try:
-    from streamlit_lottie import st_lottie
-except ImportError:
-    def st_lottie(*args, **kwargs):
-        pass
-
-import requests, json, os, time, hashlib, uuid
+from datetime import datetime
+import uuid
 from PyPDF2 import PdfReader
 from PIL import Image
-import torch
+import base64
 
-try:
-    from supabase import create_client
-except ImportError:
-    create_client = None
+# Firebase
+import firebase_admin
+from firebase_admin import credentials, auth, firestore
 
+# LangChain
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_core.vectorstores import InMemoryVectorStore
-from langchain_core.messages import HumanMessage
+from langchain_community.vectorstores import FAISS
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
-
-# ✅ FIX: Safe import for transformers (prevents crash)
-try:
-    from transformers import BlipProcessor, BlipForQuestionAnswering
-except ImportError:
-    BlipProcessor = None
-    BlipForQuestionAnswering = None
+from langchain_core.messages import HumanMessage
 
 
 # -------------------- CONFIG --------------------
-st.set_page_config(page_title="SlideSense", page_icon="📘", layout="wide")
-USERS_FILE = "users.json"
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
-SUPABASE_USERS_TABLE = os.getenv("SUPABASE_USERS_TABLE", "users")
+st.set_page_config(page_title="SlideSense AI", layout="wide")
+
+# ✅ SAFE FIREBASE INIT
+if not firebase_admin._apps:
+    cred = credentials.Certificate(dict(st.secrets["firebase"]))
+    firebase_admin.initialize_app(cred)
+
+db = firestore.client()
 
 
-# -------------------- HELPERS --------------------
-@st.cache_resource
-def get_supabase_client():
-    if create_client is None:
-        return None
-    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
-        return None
-    try:
-        return create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-    except Exception:
-        return None
-
-
-def load_users():
-    supabase = get_supabase_client()
-    if supabase is not None:
-        try:
-            resp = supabase.table(SUPABASE_USERS_TABLE).select(
-                "username,password_hash"
-            ).execute()
-            data = getattr(resp, "data", None)
-            if data:
-                return {row["username"]: row["password_hash"] for row in data}
-            return {}
-        except Exception as e:
-            st.warning(f"Falling back to local user store: {e}")
-
-    if os.path.exists(USERS_FILE):
-        with open(USERS_FILE) as f:
-            return json.load(f)
-    return {}
-
-def save_users(users):
-    supabase = get_supabase_client()
-    if supabase is not None:
-        rows = [{"username": u, "password_hash": pw} for u, pw in users.items()]
-        try:
-            if rows:
-                supabase.table(SUPABASE_USERS_TABLE).upsert(rows).execute()
-        except Exception as e:
-            st.warning(f"Could not save users to Supabase: {e}")
-
-    with open(USERS_FILE, "w") as f:
-        json.dump(users, f)
-
-def hash_password(pw):
-    return hashlib.sha256(pw.encode()).hexdigest()
-
-def load_lottie(url):
-    r = requests.get(url)
-    return r.json() if r.status_code == 200 else None
-
-def type_text(text, speed=0.02):
-    box = st.empty()
-    out = ""
-    for c in text:
-        out += c
-        box.markdown(f"### {out}")
-        time.sleep(speed)
-
-
-# -------------------- CACHED MODELS --------------------
-@st.cache_resource
-def load_llm():
-    return ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
-        temperature=0.3,
-        max_output_tokens=2048,
-        # ✅ FIXED GOOGLE KEY FOR STREAMLIT CLOUD
-        google_api_key=st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY"),
-    )
-
-
-def invoke_llm(prompt_text: str):
-    llm = load_llm()
-    try:
-        msg = llm.invoke([HumanMessage(content=prompt_text)])
-        return msg.content if hasattr(msg, "content") else str(msg)
-    except Exception as e:
-        raise ValueError("Gemini API error. Check GOOGLE_API_KEY.") from e
-
-
-@st.cache_resource
-def load_blip():
-    # ✅ Prevent crash if transformers not installed
-    if BlipProcessor is None or BlipForQuestionAnswering is None:
-        return None, None, "cpu"
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    processor = BlipProcessor.from_pretrained("Salesforce/blip-vqa-base")
-    model = BlipForQuestionAnswering.from_pretrained(
-        "Salesforce/blip-vqa-base"
-    ).to(device)
-    return processor, model, device
-
-
-# -------------------- SESSION DEFAULTS --------------------
-def _default_chats():
-    return [{"id": "0", "title": "New chat", "messages": []}]
-
+# -------------------- SESSION --------------------
 defaults = {
     "authenticated": False,
-    "guest": False,
-    "welcome_done": False,
-    "users": load_users(),
-    "vector_db": None,
-    "current_pdf_id": None,
-    "chats": _default_chats(),
-    "current_chat_id": "0",
+    "user_id": None,
+    "email": None,
+    "mode": "PDF",
+    "current_chat_id": None,
+    "vector_db": None
 }
 
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-def get_current_chat():
-    cid = st.session_state.current_chat_id
-    for c in st.session_state.chats:
-        if c["id"] == cid:
-            return c
-    return st.session_state.chats[0]
 
-def add_message_to_current_chat(question: str, answer: str):
-    chat = get_current_chat()
-    chat["messages"].append((question, answer))
+# -------------------- AUTH --------------------
+def signup(email, password):
+    try:
+        return auth.create_user(email=email, password=password)
+    except Exception as e:
+        st.error(str(e))
+        return None
 
 
-# -------------------- IMAGE Q&A --------------------
-def answer_image_question(image, question):
-    processor, model, device = load_blip()
+def login(email):
+    try:
+        return auth.get_user_by_email(email)
+    except:
+        return None
 
-    # ✅ fallback if model unavailable
-    if processor is None:
-        return "Image model not available in deployment."
 
-    inputs = processor(image, question, return_tensors="pt").to(device)
-    outputs = model.generate(**inputs, max_length=30)
+# -------------------- FIRESTORE --------------------
+def create_chat(user_id, mode):
+    chat_id = str(uuid.uuid4())
+    db.collection("users").document(user_id).collection("chats").document(chat_id).set({
+        "mode": mode,
+        "created_at": datetime.utcnow(),
+        "title": "New Chat"
+    })
+    return chat_id
 
-    short_answer = processor.decode(outputs[0], skip_special_tokens=True)
 
-    return invoke_llm(f"Question: {question}\nAnswer: {short_answer}")
+def save_msg(user_id, chat_id, role, content):
+    db.collection("users").document(user_id).collection("chats") \
+        .document(chat_id).collection("messages").add({
+            "role": role,
+            "content": content,
+            "timestamp": datetime.utcnow()
+        })
+
+
+def load_msgs(user_id, chat_id):
+    docs = db.collection("users").document(user_id).collection("chats") \
+        .document(chat_id).collection("messages") \
+        .order_by("timestamp").stream()
+
+    return [(d.to_dict()["role"], d.to_dict()["content"]) for d in docs]
+
+
+# -------------------- LLM --------------------
+@st.cache_resource
+def load_llm():
+    return ChatGoogleGenerativeAI(
+        model="gemini-2.0-flash",
+        temperature=0.3,
+        google_api_key=st.secrets.get("GOOGLE_API_KEY")
+    )
+
+
+# -------------------- LOGIN --------------------
+if not st.session_state.authenticated:
+    st.title("Login")
+
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+        user = login(email)
+        if user:
+            st.session_state.authenticated = True
+            st.session_state.user_id = user.uid
+            st.session_state.email = email
+            st.rerun()
+        else:
+            st.error("User not found")
+
+    if st.button("Signup"):
+        user = signup(email, password)
+        if user:
+            st.success("Account created")
+
+    st.stop()
+
+
+# -------------------- SIDEBAR --------------------
+st.sidebar.write(st.session_state.email)
+
+mode = st.sidebar.radio("Mode", ["PDF", "IMAGE"])
+st.session_state.mode = mode
+
+if st.sidebar.button("New Chat"):
+    st.session_state.current_chat_id = create_chat(
+        st.session_state.user_id, mode
+    )
+    st.session_state.vector_db = None
+    st.rerun()
+
+
+# -------------------- MAIN --------------------
+if not st.session_state.current_chat_id:
+    st.write("Create a chat to start")
+    st.stop()
+
+
+# -------------------- PDF MODE --------------------
+if mode == "PDF":
+
+    pdf = st.file_uploader("Upload PDF")
+
+    if pdf and st.session_state.vector_db is None:
+        reader = PdfReader(pdf)
+        text = ""
+
+        for page in reader.pages:
+            t = page.extract_text()
+            if t:
+                text += t
+
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=800,
+            chunk_overlap=150
+        )
+
+        chunks = splitter.split_text(text)
+
+        embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2"
+        )
+
+        st.session_state.vector_db = FAISS.from_texts(chunks, embeddings)
+
+# -------------------- IMAGE MODE --------------------
+else:
+    img_file = st.file_uploader("Upload Image")
+
+    if img_file:
+        st.image(img_file)
+
+
+# -------------------- CHAT --------------------
+msgs = load_msgs(
+    st.session_state.user_id,
+    st.session_state.current_chat_id
+)
+
+for r, c in msgs:
+    st.write(f"{r}: {c}")
+
+q = st.chat_input("Ask")
+
+if q:
+
+    save_msg(st.session_state.user_id,
+             st.session_state.current_chat_id,
+             "user", q)
+
+    llm = load_llm()
+
+    # PDF
+    if mode == "PDF":
+        if st.session_state.vector_db is None:
+            ans = "Upload PDF first"
+        else:
+            docs = st.session_state.vector_db.similarity_search(q, k=5)
+
+            prompt = ChatPromptTemplate.from_template("""
+Context:
+{context}
+
+Question:
+{question}
+""")
+
+            chain = create_stuff_documents_chain(llm, prompt)
+
+            res = chain.invoke({
+                "context": docs,
+                "question": q
+            })
+
+            ans = res.get("output_text", "")
+
+    # IMAGE
+    else:
+        if not img_file:
+            ans = "Upload image first"
+        else:
+            img_bytes = img_file.getvalue()
+            encoded = base64.b64encode(img_bytes).decode()
+
+            res = llm.invoke([
+                HumanMessage(content=[
+                    {"type": "text", "text": q},
+                    {"type": "image_url",
+                     "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}}
+                ])
+            ])
+
+            ans = res.content
+
+    save_msg(st.session_state.user_id,
+             st.session_state.current_chat_id,
+             "assistant", ans)
+
+    st.rerun()
