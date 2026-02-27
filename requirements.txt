@@ -1,0 +1,15 @@
+streamlit==1.41.0
+firebase-admin==6.5.0
+PyPDF2==3.0.1
+Pillow
+
+langchain==0.3.14
+langchain-community==0.3.14
+langchain-core==0.3.29
+langchain-text-splitters==0.3.5
+langchain-google-genai==2.0.8
+langchain-huggingface==0.1.2
+
+sentence-transformers==3.3.1
+
+faiss-cpu
