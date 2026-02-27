@@ -1,4 +1,4 @@
-# ================= SlideSense AI - FULLY FIXED =================
+# ================= SlideSense AI - CRASH PROOF VERSION =================
 
 import base64
 import hashlib
@@ -117,15 +117,25 @@ def login(username, password):
 
 def login_as_guest():
     uid = str(uuid.uuid4())
-    uname = f"guest_{uid[:6]}"
-    ensure_user(uid, uname)
+    uname = f"guest_{uid[:8]}"
+
+    # 🔥 crash-proof guest creation
+    try:
+        ensure_user(uid, uname)
+    except Exception as e:
+        print("Guest DB insert skipped:", e)
+
     st.session_state.authenticated = True
     st.session_state.user_id = uid
     st.session_state.username = uname
 
 # ---------------- CHAT ----------------
 def create_new_chat(uid, mode):
-    ensure_user(uid, st.session_state.username)
+    try:
+        ensure_user(uid, st.session_state.username)
+    except:
+        pass
+
     cid = str(uuid.uuid4())
     sb_rest("POST", CHAT_TABLE, json={
         "id": cid,
@@ -146,19 +156,25 @@ def save_message(cid, role, content):
     })
 
 def load_user_chats(uid, mode):
-    return sb_rest("GET", CHAT_TABLE, params={
-        "user_id": f"eq.{uid}",
-        "mode": f"eq.{mode}",
-        "select": "id,title,created_at",
-        "order": "created_at.desc"
-    }) or []
+    try:
+        return sb_rest("GET", CHAT_TABLE, params={
+            "user_id": f"eq.{uid}",
+            "mode": f"eq.{mode}",
+            "select": "id,title,created_at",
+            "order": "created_at.desc"
+        }) or []
+    except:
+        return []
 
 def load_messages(cid):
-    return sb_rest("GET", MSG_TABLE, params={
-        "chat_id": f"eq.{cid}",
-        "select": "role,content,created_at",
-        "order": "created_at.asc"
-    }) or []
+    try:
+        return sb_rest("GET", MSG_TABLE, params={
+            "chat_id": f"eq.{cid}",
+            "select": "role,content,created_at",
+            "order": "created_at.asc"
+        }) or []
+    except:
+        return []
 
 # ---------------- LOGIN UI ----------------
 if not st.session_state.authenticated:
@@ -199,13 +215,16 @@ mode_label = st.sidebar.radio("Mode", ["📘 PDF Analyzer", "🖼 Image Q&A"])
 st.session_state.mode = "PDF" if "PDF" in mode_label else "IMAGE"
 
 if st.sidebar.button("➕ New Chat"):
-    cid = create_new_chat(st.session_state.user_id, st.session_state.mode)
-    st.session_state.current_chat_id = cid
-    st.rerun()
+    try:
+        cid = create_new_chat(st.session_state.user_id, st.session_state.mode)
+        st.session_state.current_chat_id = cid
+        st.rerun()
+    except Exception as e:
+        st.sidebar.error("Chat creation failed")
 
 chats = load_user_chats(st.session_state.user_id, st.session_state.mode)
 for c in chats:
-    if st.sidebar.button(c["title"], key=c["id"]):
+    if st.sidebar.button(c.get("title","Chat"), key=c["id"]):
         st.session_state.current_chat_id = c["id"]
         st.rerun()
 
@@ -254,7 +273,10 @@ for m in msgs:
 
 question = st.chat_input("Ask something...")
 if question:
-    save_message(cid, "user", question)
+    try:
+        save_message(cid, "user", question)
+    except:
+        st.error("Message save failed")
 
     llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=0.3)
 
@@ -291,5 +313,9 @@ Information not found in document.
             ])
             answer = res.content
 
-    save_message(cid, "assistant", answer)
+    try:
+        save_message(cid, "assistant", answer)
+    except:
+        st.error("Assistant message save failed")
+
     st.rerun()
