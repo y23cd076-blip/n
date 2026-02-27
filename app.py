@@ -235,7 +235,7 @@ def load_llm():
     if ChatGoogleGenerativeAI is None:
         st.error("Missing package: `langchain-google-genai`. Make sure it’s installed from `requirements.txt`.")
         st.stop()
-    return ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=0.3)
+    return ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
 
 
 # -------------------- LOGIN UI --------------------
