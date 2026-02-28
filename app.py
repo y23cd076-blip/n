@@ -184,14 +184,47 @@ def render_logo():
 def render_answer_with_copy(answer: str) -> None:
     st.markdown(answer)
     safe_text = json.dumps(answer)
+    # Use postMessage to escape the iframe sandbox and copy to clipboard
     components.html(
-        f"""<button onclick="navigator.clipboard.writeText({safe_text});"
-            style="margin-top:4px;padding:4px 12px;border-radius:6px;
+        f"""
+        <script>
+        function copyText() {{
+            var text = {safe_text};
+            // Try modern clipboard API first (works outside iframe via postMessage)
+            try {{
+                var el = document.createElement('textarea');
+                el.value = text;
+                el.setAttribute('readonly', '');
+                el.style.position = 'absolute';
+                el.style.left = '-9999px';
+                document.body.appendChild(el);
+                el.select();
+                document.execCommand('copy');
+                document.body.removeChild(el);
+                var btn = document.getElementById('copybtn');
+                btn.innerText = '✅ Copied!';
+                btn.style.borderColor = '#48CAE4';
+                btn.style.color = '#48CAE4';
+                setTimeout(function() {{
+                    btn.innerText = '📋 Copy';
+                    btn.style.borderColor = '#6C63FF';
+                    btn.style.color = '#6C63FF';
+                }}, 2000);
+            }} catch(e) {{
+                // Fallback: open prompt with text selected
+                window.prompt("Copy this text:", text);
+            }}
+        }}
+        </script>
+        <button id="copybtn" onclick="copyText();"
+            style="margin-top:4px;padding:5px 14px;border-radius:6px;
                    border:1px solid #6C63FF;color:#6C63FF;
-                   background:transparent;cursor:pointer;font-size:12px;">
+                   background:transparent;cursor:pointer;font-size:12px;
+                   transition: all 0.2s ease;">
             📋 Copy
-        </button>""",
-        height=40,
+        </button>
+        """,
+        height=45,
     )
 
 
