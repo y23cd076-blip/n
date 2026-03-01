@@ -531,88 +531,94 @@ else:
 
         pdf = st.file_uploader("Upload PDF", type="pdf")
         if pdf and st.session_state.vector_db is None:
-            # Show custom PDF scanning animation
+            # Show custom PDF scanning animation using components.html (supports CSS animations)
             anim_slot = st.empty()
-            anim_slot.markdown("""
+            with anim_slot:
+                components.html("""
+<!DOCTYPE html>
+<html>
+<head>
 <style>
-.pdf-anim-wrap {
+  body {
     display:flex; flex-direction:column;
     align-items:center; justify-content:center;
-    padding: 30px 0 20px 0;
-}
-.pdf-card {
+    background:transparent; margin:0; padding:20px 0;
+    font-family:'Segoe UI',Roboto,sans-serif;
+  }
+  .pdf-card {
     position:relative; width:140px; height:190px;
     background:rgba(255,255,255,0.05);
     backdrop-filter:blur(10px);
-    -webkit-backdrop-filter:blur(10px);
-    border:1px solid rgba(255,255,255,0.1);
+    border:1px solid rgba(255,255,255,0.15);
     border-radius:12px;
-    box-shadow:0 8px 32px 0 rgba(0,0,0,0.37);
+    box-shadow:0 8px 32px rgba(0,0,0,0.5);
     overflow:hidden;
     display:flex; flex-direction:column;
     padding:20px 15px; box-sizing:border-box;
-}
-.skeleton-line {
+  }
+  .skeleton-line {
     height:8px; background:#334155;
     border-radius:4px; margin-bottom:12px;
-    position:relative; overflow:hidden;
-}
-.skeleton-line.short { width:60%; }
-.skeleton-line::after {
+    position:relative; overflow:hidden; width:100%;
+  }
+  .skeleton-line.short { width:60%; }
+  .skeleton-line::after {
     content:""; position:absolute;
     top:0; left:-100%; width:100%; height:100%;
-    background:linear-gradient(90deg,transparent,rgba(255,255,255,0.2),transparent);
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,0.25),transparent);
     animation:shimmer 1.5s infinite;
-}
-.scanner-beam {
+  }
+  .scanner-beam {
     position:absolute; top:-50px; left:0;
     width:100%; height:50px;
-    background:linear-gradient(to bottom,transparent,rgba(56,189,248,0.5));
+    background:linear-gradient(to bottom,transparent,rgba(56,189,248,0.6));
     border-bottom:2px solid #38bdf8;
-    box-shadow:0 5px 15px rgba(56,189,248,0.4);
+    box-shadow:0 5px 20px rgba(56,189,248,0.5);
     animation:scan 2.5s infinite ease-in-out alternate;
     z-index:10;
-}
-.pdf-badge {
+  }
+  .pdf-badge {
     position:absolute; bottom:12px; right:12px;
     background:linear-gradient(135deg,#ef4444,#b91c1c);
     color:white; font-size:10px; letter-spacing:1px;
-    font-weight:600; padding:4px 8px;
+    font-weight:700; padding:4px 8px;
     border-radius:6px;
-    box-shadow:0 4px 10px rgba(239,68,68,0.3);
-}
-.pdf-status {
-    margin-top:20px; color:#94a3b8;
-    font-size:13px; letter-spacing:2px;
+    box-shadow:0 4px 10px rgba(239,68,68,0.4);
+  }
+  .status-text {
+    margin-top:22px; color:#94a3b8;
+    font-size:13px; letter-spacing:3px;
     text-transform:uppercase;
     animation:pulse-text 1.5s infinite;
-}
-@keyframes scan {
+  }
+  @keyframes scan {
     0%   { top:-50px; opacity:0; }
     10%  { opacity:1; }
     90%  { opacity:1; }
     100% { top:100%; opacity:0; }
-}
-@keyframes shimmer { 100% { left:100%; } }
-@keyframes pulse-text {
-    0%,100% { opacity:0.5; }
-    50%      { opacity:1; color:#38bdf8; }
-}
+  }
+  @keyframes shimmer { 100% { left:100%; } }
+  @keyframes pulse-text {
+    0%,100% { opacity:0.4; color:#94a3b8; }
+    50%     { opacity:1;   color:#38bdf8; }
+  }
 </style>
-<div class="pdf-anim-wrap">
-    <div class="pdf-card">
-        <div class="scanner-beam"></div>
-        <div class="skeleton-line"></div>
-        <div class="skeleton-line"></div>
-        <div class="skeleton-line short"></div>
-        <div class="skeleton-line"></div>
-        <div class="skeleton-line short"></div>
-        <div class="skeleton-line"></div>
-        <div class="pdf-badge">PDF</div>
-    </div>
-    <div class="pdf-status">Analyzing...</div>
-</div>
-""", unsafe_allow_html=True)
+</head>
+<body>
+  <div class="pdf-card">
+    <div class="scanner-beam"></div>
+    <div class="skeleton-line"></div>
+    <div class="skeleton-line"></div>
+    <div class="skeleton-line short"></div>
+    <div class="skeleton-line"></div>
+    <div class="skeleton-line short"></div>
+    <div class="skeleton-line"></div>
+    <div class="pdf-badge">PDF</div>
+  </div>
+  <div class="status-text">Analyzing...</div>
+</body>
+</html>
+""", height=300)
 
             reader = PdfReader(pdf)
             text = "".join(p.extract_text() or "" for p in reader.pages)
