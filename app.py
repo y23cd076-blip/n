@@ -474,14 +474,103 @@ with st.sidebar:
 
 # ==================== MAIN CONTENT ====================
 if not st.session_state.current_chat_id:
-    render_logo()
-    st.markdown("<br>", unsafe_allow_html=True)
-    lottie_w = load_lottie("https://assets10.lottiefiles.com/packages/lf20_qp1q7mct.json")
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        if lottie_w:
-            st_lottie(lottie_w, height=240, key="welcome_anim")
-    st.info("👈 Select **➕ New Chat** from the sidebar to begin.")
+        components.html("""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: transparent;
+            font-family: 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 20px 0;
+        }
+        .logo-container { width: 260px; text-align: center; }
+
+        .slide-back { animation: slideIn 0.8s ease-out forwards; }
+        .slide-front { animation: slideIn 0.8s 0.2s ease-out forwards; opacity: 0; }
+
+        .node { animation: pulseNode 2s infinite ease-in-out; }
+        .node-1 { animation-delay: 0.5s; }
+        .node-2 { animation-delay: 0.8s; }
+        .node-3 { animation-delay: 1.1s; }
+
+        .arrow {
+            stroke-dasharray: 100;
+            stroke-dashoffset: 100;
+            animation: drawArrow 1s 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        .brand-name {
+            font-size: 38px;
+            font-weight: 800;
+            color: #0c4a6e;
+            margin-top: 8px;
+            opacity: 0;
+            animation: fadeInUp 0.8s 1.5s forwards;
+        }
+        .tagline {
+            font-size: 14px;
+            color: #64748b;
+            letter-spacing: 1px;
+            opacity: 0;
+            animation: fadeIn 1s 2s forwards;
+            margin-bottom: 16px;
+        }
+        .hint {
+            font-size: 13px;
+            color: #6C63FF;
+            opacity: 0;
+            animation: fadeIn 1s 2.4s forwards;
+            background: rgba(108,99,255,0.08);
+            border: 1px solid rgba(108,99,255,0.25);
+            border-radius: 8px;
+            padding: 8px 16px;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(-30px); opacity: 0; }
+            to   { transform: translateX(0);     opacity: 1; }
+        }
+        @keyframes pulseNode {
+            0%,100% { fill: #0ea5e9; r: 2; }
+            50%      { fill: #38bdf8; r: 3.5; filter: drop-shadow(0 0 2px #38bdf8); }
+        }
+        @keyframes drawArrow { to { stroke-dashoffset: 0; } }
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeIn { to { opacity: 1; } }
+    </style>
+</head>
+<body>
+    <div class="logo-container">
+        <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <path class="slide-back" d="M30 20 H65 A5 5 0 0 1 70 25 V75 A5 5 0 0 1 65 80 H30 A5 5 0 0 1 25 75 V25 A5 5 0 0 1 30 20" fill="#0369a1" />
+            <path class="slide-front" d="M35 25 H70 A5 5 0 0 1 75 30 V80 A5 5 0 0 1 70 85 H35 A5 5 0 0 1 30 80 V30 A5 5 0 0 1 35 25" fill="#0ea5e9" />
+            <circle cx="55" cy="55" r="22" fill="white" stroke="#0c4a6e" stroke-width="3" />
+            <circle class="node node-1" cx="48" cy="52" r="2" fill="#0ea5e9" />
+            <circle class="node node-2" cx="55" cy="48" r="2" fill="#0ea5e9" />
+            <circle class="node node-3" cx="53" cy="58" r="2" fill="#0ea5e9" />
+            <line x1="48" y1="52" x2="55" y2="48" stroke="#cbd5e1" stroke-width="0.5" />
+            <line x1="55" y1="48" x2="53" y2="58" stroke="#cbd5e1" stroke-width="0.5" />
+            <path class="arrow" d="M45 65 L75 35 M75 35 L68 35 M75 35 L75 42" stroke="#0ea5e9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+        </svg>
+        <div class="brand-name">SlideSense</div>
+        <div class="tagline">PDF and Image Q&amp;A</div>
+        <div class="hint">👈 Select ➕ New Chat from the sidebar to begin</div>
+    </div>
+</body>
+</html>
+        """, height=400)
 
 else:
     if st.session_state.mode == "PDF":
