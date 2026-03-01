@@ -17,11 +17,9 @@ import base64
 import os
 import streamlit.components.v1 as components
 
-# Firebase
 import firebase_admin
 from firebase_admin import credentials, auth, firestore
 
-# LangChain
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -31,11 +29,11 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage
 
 
-st.set_page_config(page_title="SlideSense AI", page_icon="assets/logo.png", layout="wide")
+st.set_page_config(page_title="SlideSense AI", page_icon="🧠", layout="wide")
 
-# -------------------- LOAD LOGO --------------------
+
+# -------------------- LOGO --------------------
 def get_logo_base64():
-    """Load logo from assets/logo.png and return base64 string."""
     logo_path = "assets/logo.png"
     if os.path.exists(logo_path):
         with open(logo_path, "rb") as f:
@@ -45,49 +43,37 @@ def get_logo_base64():
 LOGO_B64 = get_logo_base64()
 
 def logo_img_tag(size=52):
-    """Returns an <img> tag for the logo, or fallback emoji."""
     if LOGO_B64:
-        return f'<img src="data:image/png;base64,{LOGO_B64}" width="{size}" height="{size}" style="border-radius:10px; object-fit:contain;">'
-    return f'<span style="font-size:{size//2}px;">📊</span>'
+        return f'<img src="data:image/png;base64,{LOGO_B64}" width="{size}" height="{size}" style="border-radius:10px;object-fit:contain;">'
+    return f'<span style="font-size:{size//2}px;">🧠</span>'
 
 
+# -------------------- CSS --------------------
 st.markdown("""
-    <style>
-    #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
+<style>
+#MainMenu {visibility:hidden;}
+header {visibility:hidden;}
+footer {visibility:hidden;}
 
-    .logo-bar {
-        display: flex; align-items: center; gap: 14px;
-        padding: 18px 0 10px 0;
-    }
-    .logo-text {
-        font-size: 2.2rem; font-weight: 900; letter-spacing: 5px;
-        background: linear-gradient(135deg, #6C63FF 0%, #48CAE4 100%);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        background-clip: text; margin: 0; line-height: 1.1;
-    }
-    .logo-tagline {
-        font-size: 0.7rem; color: #888; letter-spacing: 2.5px;
-        text-transform: uppercase; margin: 0;
-    }
-    .sidebar-logo {
-        display: flex; align-items: center; gap: 10px;
-        padding: 8px 0 14px 0;
-        border-bottom: 1px solid rgba(108,99,255,0.2);
-        margin-bottom: 12px;
-    }
-    .sidebar-logo-text {
-        font-size: 1rem; font-weight: 800; letter-spacing: 3px;
-        background: linear-gradient(135deg, #6C63FF 0%, #48CAE4 100%);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        background-clip: text;
-    }
-    </style>
+.logo-bar {display:flex;align-items:center;gap:14px;padding:18px 0 10px 0;}
+.logo-text {
+    font-size:2.2rem;font-weight:900;letter-spacing:5px;
+    background:linear-gradient(135deg,#6C63FF 0%,#48CAE4 100%);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+    background-clip:text;margin:0;line-height:1.1;
+}
+.logo-tagline {font-size:0.7rem;color:#888;letter-spacing:2.5px;text-transform:uppercase;margin:0;}
+
+.sidebar-logo {display:flex;align-items:center;gap:10px;padding:8px 0 14px 0;
+    border-bottom:1px solid rgba(108,99,255,0.2);margin-bottom:12px;}
+.sidebar-logo-text {font-size:1rem;font-weight:800;letter-spacing:3px;
+    background:linear-gradient(135deg,#6C63FF 0%,#48CAE4 100%);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+</style>
 """, unsafe_allow_html=True)
 
 
-# -------------------- FIREBASE INIT --------------------
+# -------------------- FIREBASE --------------------
 if not firebase_admin._apps:
     raw_key = st.secrets["firebase"]["private_key"]
     private_key = raw_key.replace("\\n", "\n")
@@ -109,7 +95,7 @@ if not firebase_admin._apps:
 db = firestore.client()
 
 
-# -------------------- SESSION INIT --------------------
+# -------------------- SESSION --------------------
 defaults = {
     "authenticated": False,
     "is_guest": False,
@@ -121,7 +107,6 @@ defaults = {
     "guest_messages": [],
     "logo_typed": False,
 }
-
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -137,7 +122,6 @@ def load_lottie(url):
 
 
 def type_text_logo():
-    """Animated typing logo for auth page."""
     if st.session_state.logo_typed:
         st.markdown(f"""
             <div class="logo-bar">
@@ -146,10 +130,8 @@ def type_text_logo():
                     <p class="logo-text">SLIDESENSE</p>
                     <p class="logo-tagline">AI · PDF · Image Analyzer</p>
                 </div>
-            </div>
-        """, unsafe_allow_html=True)
+            </div>""", unsafe_allow_html=True)
         return
-
     placeholder = st.empty()
     full = "SLIDESENSE"
     out = ""
@@ -162,14 +144,12 @@ def type_text_logo():
                     <p class="logo-text">{out}</p>
                     <p class="logo-tagline">AI · PDF · Image Analyzer</p>
                 </div>
-            </div>
-        """, unsafe_allow_html=True)
+            </div>""", unsafe_allow_html=True)
         time.sleep(0.07)
     st.session_state.logo_typed = True
 
 
 def render_logo():
-    """Static logo for main area."""
     st.markdown(f"""
         <div class="logo-bar">
             {logo_img_tag(56)}
@@ -177,58 +157,47 @@ def render_logo():
                 <p class="logo-text">SLIDESENSE</p>
                 <p class="logo-tagline">AI · PDF · Image Analyzer</p>
             </div>
-        </div>
-    """, unsafe_allow_html=True)
+        </div>""", unsafe_allow_html=True)
 
 
 def render_answer_with_copy(answer: str) -> None:
     st.markdown(answer)
     safe_text = json.dumps(answer)
-    # Use postMessage to escape the iframe sandbox and copy to clipboard
-    components.html(
-        f"""
+    components.html(f"""
         <script>
         function copyText() {{
             var text = {safe_text};
-            // Try modern clipboard API first (works outside iframe via postMessage)
             try {{
                 var el = document.createElement('textarea');
                 el.value = text;
-                el.setAttribute('readonly', '');
-                el.style.position = 'absolute';
-                el.style.left = '-9999px';
+                el.setAttribute('readonly','');
+                el.style.position='absolute';
+                el.style.left='-9999px';
                 document.body.appendChild(el);
                 el.select();
                 document.execCommand('copy');
                 document.body.removeChild(el);
                 var btn = document.getElementById('copybtn');
                 btn.innerText = '✅ Copied!';
-                btn.style.borderColor = '#48CAE4';
-                btn.style.color = '#48CAE4';
-                setTimeout(function() {{
-                    btn.innerText = '📋 Copy';
-                    btn.style.borderColor = '#6C63FF';
-                    btn.style.color = '#6C63FF';
+                btn.style.borderColor='#48CAE4';
+                btn.style.color='#48CAE4';
+                setTimeout(function(){{
+                    btn.innerText='📋 Copy';
+                    btn.style.borderColor='#6C63FF';
+                    btn.style.color='#6C63FF';
                 }}, 2000);
-            }} catch(e) {{
-                // Fallback: open prompt with text selected
-                window.prompt("Copy this text:", text);
-            }}
+            }} catch(e) {{ window.prompt("Copy:", text); }}
         }}
         </script>
         <button id="copybtn" onclick="copyText();"
             style="margin-top:4px;padding:5px 14px;border-radius:6px;
                    border:1px solid #6C63FF;color:#6C63FF;
-                   background:transparent;cursor:pointer;font-size:12px;
-                   transition: all 0.2s ease;">
+                   background:transparent;cursor:pointer;font-size:12px;">
             📋 Copy
-        </button>
-        """,
-        height=45,
-    )
+        </button>""", height=45)
 
 
-# -------------------- AUTH FUNCTIONS --------------------
+# -------------------- AUTH --------------------
 def signup(email, password):
     try:
         return auth.create_user(email=email, password=password)
@@ -276,9 +245,7 @@ def reset_password(email):
 
 # -------------------- FIRESTORE --------------------
 def get_next_chat_number(user_id, mode):
-    """Count existing chats to auto-number new ones."""
-    chats = db.collection("users").document(user_id).collection("chats") \
-        .where("mode", "==", mode).stream()
+    chats = db.collection("users").document(user_id).collection("chats").where("mode","==",mode).stream()
     return sum(1 for _ in chats) + 1
 
 
@@ -288,20 +255,16 @@ def create_new_chat(user_id, mode):
     icon = "📘" if mode == "PDF" else "🖼"
     title = f"{icon} Chat {num}"
     db.collection("users").document(user_id).collection("chats").document(chat_id).set({
-        "mode": mode,
-        "created_at": datetime.utcnow(),
-        "title": title
+        "mode": mode, "created_at": datetime.utcnow(), "title": title
     })
     return chat_id
 
 
 def update_chat_title(user_id, chat_id, first_question):
-    """Rename chat to first 35 chars of the first question asked."""
     short = first_question.strip()[:35]
     if len(first_question.strip()) > 35:
         short += "..."
-    db.collection("users").document(user_id).collection("chats") \
-        .document(chat_id).update({"title": short})
+    db.collection("users").document(user_id).collection("chats").document(chat_id).update({"title": short})
 
 
 def save_message(user_id, chat_id, role, content):
@@ -313,7 +276,7 @@ def save_message(user_id, chat_id, role, content):
 
 def load_user_chats(user_id, mode):
     chats = db.collection("users").document(user_id).collection("chats") \
-        .where("mode", "==", mode) \
+        .where("mode","==",mode) \
         .order_by("created_at", direction=firestore.Query.DESCENDING).stream()
     return [(doc.id, doc.to_dict()["title"]) for doc in chats]
 
@@ -341,21 +304,15 @@ if not st.session_state.authenticated and not st.session_state.is_guest:
 
     with col_anim:
         type_text_logo()
-
         lottie_data = load_lottie("https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json")
         if lottie_data:
             st_lottie(lottie_data, height=360, key="login_anim")
         else:
-            st.markdown("<div style='text-align:center;padding-top:60px'>", unsafe_allow_html=True)
-            if LOGO_B64:
-                st.markdown(f'<div style="text-align:center">{logo_img_tag(120)}</div>', unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-
+            st.markdown(f'<div style="text-align:center;padding-top:60px">{logo_img_tag(120)}</div>', unsafe_allow_html=True)
         st.markdown("<div style='text-align:center;color:#888;font-size:0.85rem;margin-top:8px;'>Analyze PDFs & Images using AI</div>", unsafe_allow_html=True)
 
     with col_form:
         st.markdown("<div style='padding-top:55px'></div>", unsafe_allow_html=True)
-
         tab_login, tab_signup, tab_guest = st.tabs(["🔐 Login", "📝 Sign Up", "👤 Guest"])
 
         with tab_login:
@@ -406,7 +363,7 @@ if not st.session_state.authenticated and not st.session_state.is_guest:
 
         with tab_guest:
             st.markdown("#### Continue without an account")
-            st.info("**Guest mode:** Full PDF & Image AI — no account needed.\n\n❌ Chats are not saved and clear on refresh.")
+            st.info("**Guest mode:** Full PDF & Image AI — no account needed.\n\n❌ Chats not saved, clears on refresh.")
             if st.button("👤 Continue as Guest", use_container_width=True, type="primary"):
                 st.session_state.is_guest = True
                 st.session_state.user_id = "guest"
@@ -423,8 +380,7 @@ with st.sidebar:
         <div class="sidebar-logo">
             {logo_img_tag(36)}
             <span class="sidebar-logo-text">SLIDESENSE</span>
-        </div>
-    """, unsafe_allow_html=True)
+        </div>""", unsafe_allow_html=True)
 
     if st.session_state.is_guest:
         st.warning("👤 Guest Mode")
@@ -449,91 +405,106 @@ with st.sidebar:
             st.session_state.vector_db = None
             st.rerun()
         if not st.session_state.current_chat_id:
+            st.session_state.current_chat_id = "guest_session"
+    else:
+        st.markdown("### 💬 Your Chats")
+        user_chats = load_user_chats(st.session_state.user_id, st.session_state.mode)
+        for chat_id, title in user_chats:
+            c1, c2 = st.columns([4, 1])
+            if c1.button(title, key=f"open_{chat_id}"):
+                st.session_state.current_chat_id = chat_id
+                st.session_state.vector_db = None
+                st.rerun()
+            if c2.button("🗑", key=f"del_{chat_id}"):
+                db.collection("users").document(st.session_state.user_id) \
+                  .collection("chats").document(chat_id).delete()
+                if st.session_state.current_chat_id == chat_id:
+                    st.session_state.current_chat_id = None
+                st.rerun()
+        if st.button("➕ New Chat", use_container_width=True):
+            cid = create_new_chat(st.session_state.user_id, st.session_state.mode)
+            st.session_state.current_chat_id = cid
+            st.session_state.vector_db = None
+            st.rerun()
+
+
+# ==================== WELCOME SCREEN (after login, before chat) ====================
+if not st.session_state.current_chat_id:
     st.markdown("""
     <style>
     .ss-wrap {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 60px 0 40px 0;
+        display:flex; flex-direction:column;
+        align-items:center; justify-content:center;
+        padding:60px 0 40px 0;
     }
-    .ss-svg { width: 220px; height: 220px; }
+    .ss-svg { width:220px; height:220px; }
 
     .slide-back { animation: ssSlideIn 0.8s ease-out forwards; }
-    .slide-front { animation: ssSlideIn 0.8s 0.2s ease-out forwards; opacity: 0; }
+    .slide-front { animation: ssSlideIn 0.8s 0.2s ease-out forwards; opacity:0; }
 
     .ss-node { animation: ssPulse 2s infinite ease-in-out; }
-    .ss-node-1 { animation-delay: 0.5s; }
-    .ss-node-2 { animation-delay: 0.8s; }
-    .ss-node-3 { animation-delay: 1.1s; }
+    .ss-node-1 { animation-delay:0.5s; }
+    .ss-node-2 { animation-delay:0.8s; }
+    .ss-node-3 { animation-delay:1.1s; }
 
     .ss-arrow {
-        stroke-dasharray: 100;
-        stroke-dashoffset: 100;
+        stroke-dasharray:100; stroke-dashoffset:100;
         animation: ssDraw 1s 1.2s cubic-bezier(0.16,1,0.3,1) forwards;
     }
     .ss-brand {
-        font-size: 42px;
-        font-weight: 900;
-        background: linear-gradient(135deg, #6C63FF 0%, #48CAE4 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        letter-spacing: 4px;
-        margin-top: 10px;
-        opacity: 0;
-        animation: ssFadeUp 0.8s 1.5s forwards;
+        font-size:44px; font-weight:900; letter-spacing:5px;
+        background:linear-gradient(135deg,#6C63FF 0%,#48CAE4 100%);
+        -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+        background-clip:text; margin-top:14px;
+        opacity:0; animation: ssFadeUp 0.8s 1.5s forwards;
     }
     .ss-tagline {
-        font-size: 14px;
-        color: #888;
-        letter-spacing: 2px;
-        text-transform: uppercase;
-        opacity: 0;
-        animation: ssFade 1s 2s forwards;
-        margin-top: 4px;
+        font-size:14px; color:#888; letter-spacing:2px;
+        text-transform:uppercase; margin-top:6px;
+        opacity:0; animation: ssFade 1s 2s forwards;
     }
     .ss-hint {
-        margin-top: 24px;
-        font-size: 14px;
-        color: #6C63FF;
-        opacity: 0;
-        animation: ssFade 1s 2.5s forwards;
-        background: rgba(108,99,255,0.08);
-        border: 1px solid rgba(108,99,255,0.3);
-        border-radius: 10px;
-        padding: 10px 22px;
+        margin-top:28px; font-size:14px; color:#6C63FF;
+        opacity:0; animation: ssFade 1s 2.5s forwards;
+        background:rgba(108,99,255,0.08);
+        border:1px solid rgba(108,99,255,0.3);
+        border-radius:10px; padding:10px 24px;
     }
 
     @keyframes ssSlideIn {
-        from { transform: translateX(-30px); opacity: 0; }
-        to   { transform: translateX(0);     opacity: 1; }
+        from { transform:translateX(-30px); opacity:0; }
+        to   { transform:translateX(0);     opacity:1; }
     }
     @keyframes ssPulse {
-        0%,100% { fill: #0ea5e9; }
-        50%      { fill: #38bdf8; filter: drop-shadow(0 0 3px #38bdf8); }
+        0%,100% { fill:#0ea5e9; }
+        50%      { fill:#38bdf8; filter:drop-shadow(0 0 3px #38bdf8); }
     }
-    @keyframes ssDraw { to { stroke-dashoffset: 0; } }
+    @keyframes ssDraw { to { stroke-dashoffset:0; } }
     @keyframes ssFadeUp {
-        from { opacity: 0; transform: translateY(12px); }
-        to   { opacity: 1; transform: translateY(0); }
+        from { opacity:0; transform:translateY(12px); }
+        to   { opacity:1; transform:translateY(0); }
     }
-    @keyframes ssFade { to { opacity: 1; } }
+    @keyframes ssFade { to { opacity:1; } }
     </style>
 
     <div class="ss-wrap">
         <svg class="ss-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-            <path class="slide-back"  d="M30 20 H65 A5 5 0 0 1 70 25 V75 A5 5 0 0 1 65 80 H30 A5 5 0 0 1 25 75 V25 A5 5 0 0 1 30 20" fill="#0369a1"/>
-            <path class="slide-front" d="M35 25 H70 A5 5 0 0 1 75 30 V80 A5 5 0 0 1 70 85 H35 A5 5 0 0 1 30 80 V30 A5 5 0 0 1 35 25" fill="#0ea5e9"/>
+            <path class="slide-back"
+                d="M30 20 H65 A5 5 0 0 1 70 25 V75 A5 5 0 0 1 65 80 H30 A5 5 0 0 1 25 75 V25 A5 5 0 0 1 30 20"
+                fill="#0369a1"/>
+            <path class="slide-front"
+                d="M35 25 H70 A5 5 0 0 1 75 30 V80 A5 5 0 0 1 70 85 H35 A5 5 0 0 1 30 80 V30 A5 5 0 0 1 35 25"
+                fill="#0ea5e9"/>
             <circle cx="55" cy="55" r="22" fill="white" stroke="#0c4a6e" stroke-width="3"/>
             <circle class="ss-node ss-node-1" cx="48" cy="52" r="2" fill="#0ea5e9"/>
             <circle class="ss-node ss-node-2" cx="55" cy="48" r="2" fill="#0ea5e9"/>
             <circle class="ss-node ss-node-3" cx="53" cy="58" r="2" fill="#0ea5e9"/>
             <line x1="48" y1="52" x2="55" y2="48" stroke="#cbd5e1" stroke-width="0.5"/>
             <line x1="55" y1="48" x2="53" y2="58" stroke="#cbd5e1" stroke-width="0.5"/>
-            <path class="ss-arrow" d="M45 65 L75 35 M75 35 L68 35 M75 35 L75 42"
-                  stroke="#0ea5e9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            <path class="ss-arrow"
+                d="M45 65 L75 35 M75 35 L68 35 M75 35 L75 42"
+                stroke="#0ea5e9" stroke-width="4"
+                stroke-linecap="round" stroke-linejoin="round" fill="none"/>
         </svg>
         <div class="ss-brand">SLIDESENSE</div>
         <div class="ss-tagline">PDF &amp; Image Q&amp;A</div>
@@ -541,7 +512,12 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
+
+# ==================== CHAT SCREEN ====================
 else:
+    img_file = None
+    camera_file = None
+
     if st.session_state.mode == "PDF":
         ac, tc = st.columns([1, 4])
         with ac:
@@ -563,6 +539,7 @@ else:
                 emb = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
                 st.session_state.vector_db = FAISS.from_texts(chunks, emb)
                 st.success("✅ PDF processed! Ask your questions below.")
+
     else:
         ac, tc = st.columns([1, 4])
         with ac:
@@ -571,30 +548,23 @@ else:
                 st_lottie(li, height=110, key="img_anim")
         with tc:
             st.markdown("## 🖼 Image Q&A")
-            st.caption("Upload an image or use your live camera to ask questions.")
+            st.caption("Upload an image or use your live camera.")
         st.divider()
 
-        img_source = st.radio(
-            "Image Source",
-            ["📁 Upload Image", "📷 Live Camera"],
-            horizontal=True,
-            key="img_source"
-        )
-
-        img_file = None
-        camera_file = None
+        img_source = st.radio("Image Source", ["📁 Upload Image", "📷 Live Camera"],
+                              horizontal=True, key="img_source")
 
         if img_source == "📁 Upload Image":
-            img_file = st.file_uploader("Upload Image", type=["png", "jpg", "jpeg"])
+            img_file = st.file_uploader("Upload Image", type=["png","jpg","jpeg"])
             if img_file:
                 st.image(Image.open(img_file).convert("RGB"), use_container_width=True)
         else:
-            st.info("📷 Point your camera and click **\'Take Photo\'** to capture.")
+            st.info("📷 Point your camera and click **'Take Photo'** to capture.")
             camera_file = st.camera_input("Take a photo")
             if camera_file:
                 st.image(Image.open(camera_file).convert("RGB"), use_container_width=True)
 
-    # Messages
+    # ---- Messages ----
     messages = st.session_state.guest_messages if st.session_state.is_guest else \
                load_messages(st.session_state.user_id, st.session_state.current_chat_id)
 
@@ -615,7 +585,6 @@ else:
         if st.session_state.is_guest:
             st.session_state.guest_messages.append(("user", question))
         else:
-            # Rename chat to first question if it still has default "Chat N" title
             existing_msgs = load_messages(st.session_state.user_id, st.session_state.current_chat_id)
             if len(existing_msgs) == 0:
                 update_chat_title(st.session_state.user_id, st.session_state.current_chat_id, question)
@@ -640,11 +609,8 @@ else:
                 with st.spinner("🖼 Analyzing image..."):
                     image_bytes = active_image.getvalue()
                     encoded = base64.b64encode(image_bytes).decode("utf-8")
-                    # camera_input is always jpeg; uploaded files use their extension
-                    if camera_file and not img_file:
-                        mime = "image/jpeg"
-                    else:
-                        mime = "image/png" if img_file.name.lower().endswith(".png") else "image/jpeg"
+                    mime = "image/jpeg" if (camera_file and not img_file) else \
+                           ("image/png" if img_file.name.lower().endswith(".png") else "image/jpeg")
                     response = load_llm().invoke([HumanMessage(content=[
                         {"type": "text", "text": question},
                         {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}},
