@@ -521,9 +521,73 @@ else:
     if st.session_state.mode == "PDF":
         ac, tc = st.columns([1, 4])
         with ac:
-            lp = load_lottie("https://assets10.lottiefiles.com/packages/lf20_qp1q7mct.json")
-            if lp:
-                st_lottie(lp, height=110, key="pdf_anim")
+            components.html("""<!DOCTYPE html>
+<html><head><style>
+body {
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  background:transparent; margin:0; padding:8px 0;
+  font-family:'Segoe UI',sans-serif;
+}
+.pdf-card {
+  position:relative; width:90px; height:120px;
+  background:rgba(255,255,255,0.05);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,0.1);
+  border-radius:10px;
+  box-shadow:0 8px 32px rgba(0,0,0,0.37);
+  overflow:hidden;
+  display:flex; flex-direction:column;
+  padding:14px 10px; box-sizing:border-box;
+}
+.skeleton-line {
+  height:6px; background:#334155;
+  border-radius:4px; margin-bottom:9px;
+  position:relative; overflow:hidden; width:100%;
+}
+.skeleton-line.short { width:55%; }
+.skeleton-line::after {
+  content:""; position:absolute;
+  top:0; left:-100%; width:100%; height:100%;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.22),transparent);
+  animation:shimmer 1.5s infinite;
+}
+.scanner-beam {
+  position:absolute; top:-50px; left:0;
+  width:100%; height:40px;
+  background:linear-gradient(to bottom,transparent,rgba(56,189,248,0.5));
+  border-bottom:2px solid #38bdf8;
+  box-shadow:0 5px 15px rgba(56,189,248,0.4);
+  animation:scan 2.5s infinite ease-in-out alternate;
+  z-index:10;
+}
+.badge {
+  position:absolute; bottom:8px; right:8px;
+  background:linear-gradient(135deg,#ef4444,#b91c1c);
+  color:white; font-size:8px; letter-spacing:1px;
+  font-weight:700; padding:3px 6px;
+  border-radius:5px;
+  box-shadow:0 4px 10px rgba(239,68,68,0.3);
+}
+@keyframes scan {
+  0%  { top:-50px; opacity:0; }
+  10% { opacity:1; }
+  90% { opacity:1; }
+  100%{ top:100%; opacity:0; }
+}
+@keyframes shimmer { 100%{ left:100%; } }
+</style></head>
+<body>
+  <div class="pdf-card">
+    <div class="scanner-beam"></div>
+    <div class="skeleton-line"></div>
+    <div class="skeleton-line"></div>
+    <div class="skeleton-line short"></div>
+    <div class="skeleton-line"></div>
+    <div class="badge">PDF</div>
+  </div>
+</body></html>""", height=140)
         with tc:
             st.markdown("## 📘 PDF Analyzer")
             st.caption("Upload a PDF and ask questions about its content.")
