@@ -698,9 +698,114 @@ body {
     else:
         ac, tc = st.columns([1, 4])
         with ac:
-            li = load_lottie("https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json")
-            if li:
-                st_lottie(li, height=110, key="img_anim")
+            components.html("""<!DOCTYPE html>
+<html><head><style>
+body {
+  display:flex; align-items:center; justify-content:center;
+  background:transparent; margin:0; padding:8px 0;
+}
+.cam-wrap {
+  position:relative; width:100px; height:100px;
+  display:flex; align-items:center; justify-content:center;
+}
+/* Outer ring pulse */
+.ring-outer {
+  position:absolute;
+  width:100px; height:100px;
+  border-radius:50%;
+  border:2px solid rgba(139,92,246,0.4);
+  animation:ringPulse 2s infinite ease-out;
+}
+.ring-mid {
+  position:absolute;
+  width:76px; height:76px;
+  border-radius:50%;
+  border:2px solid rgba(139,92,246,0.6);
+  animation:ringPulse 2s 0.4s infinite ease-out;
+}
+/* Camera lens body */
+.lens-body {
+  position:relative;
+  width:56px; height:56px;
+  border-radius:50%;
+  background:radial-gradient(circle at 35% 35%, #312e81, #0f172a);
+  border:3px solid #7c3aed;
+  box-shadow:0 0 20px rgba(139,92,246,0.5), inset 0 0 12px rgba(139,92,246,0.2);
+  display:flex; align-items:center; justify-content:center;
+  overflow:hidden;
+}
+/* Iris */
+.iris {
+  width:32px; height:32px; border-radius:50%;
+  background:radial-gradient(circle at 40% 35%, #7c3aed, #4c1d95);
+  box-shadow:0 0 10px rgba(139,92,246,0.8);
+  animation:irisPulse 2s infinite ease-in-out;
+  display:flex; align-items:center; justify-content:center;
+}
+/* Pupil */
+.pupil {
+  width:12px; height:12px; border-radius:50%;
+  background:#0f0f1a;
+  box-shadow:0 0 6px rgba(139,92,246,0.6);
+}
+/* Glare */
+.glare {
+  position:absolute; top:8px; left:10px;
+  width:10px; height:6px; border-radius:50%;
+  background:rgba(255,255,255,0.3);
+  transform:rotate(-30deg);
+}
+/* Scan line across lens */
+.scan-line {
+  position:absolute; left:0; top:0;
+  width:100%; height:3px;
+  background:linear-gradient(90deg,transparent,rgba(167,139,250,0.8),transparent);
+  animation:scanLine 2s infinite linear;
+  border-radius:2px;
+}
+/* Corner brackets */
+.bracket {
+  position:absolute; width:16px; height:16px;
+  border-color:#7c3aed; border-style:solid;
+}
+.tl { top:0; left:0;  border-width:2px 0 0 2px; }
+.tr { top:0; right:0; border-width:2px 2px 0 0; }
+.bl { bottom:0; left:0;  border-width:0 0 2px 2px; }
+.br { bottom:0; right:0; border-width:0 2px 2px 0; }
+
+@keyframes ringPulse {
+  0%   { transform:scale(0.9); opacity:0.8; }
+  50%  { transform:scale(1.08); opacity:0.3; }
+  100% { transform:scale(0.9); opacity:0.8; }
+}
+@keyframes irisPulse {
+  0%,100% { transform:scale(1);    box-shadow:0 0 10px rgba(139,92,246,0.8); }
+  50%      { transform:scale(0.82); box-shadow:0 0 18px rgba(167,139,250,1); }
+}
+@keyframes scanLine {
+  0%   { top:0%;   opacity:0; }
+  10%  { opacity:1; }
+  90%  { opacity:1; }
+  100% { top:100%; opacity:0; }
+}
+</style></head>
+<body>
+  <div class="cam-wrap">
+    <div class="ring-outer"></div>
+    <div class="ring-mid"></div>
+    <div class="bracket tl"></div>
+    <div class="bracket tr"></div>
+    <div class="bracket bl"></div>
+    <div class="bracket br"></div>
+    <div class="lens-body">
+      <div class="scan-line"></div>
+      <div class="iris">
+        <div class="pupil"></div>
+      </div>
+      <div class="glare"></div>
+    </div>
+  </div>
+</body></html>""", height=120)
         with tc:
             st.markdown("## 🖼 Image Q&A")
             st.caption("Upload an image or use your live camera.")
