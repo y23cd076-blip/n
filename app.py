@@ -48,29 +48,236 @@ def logo_img_tag(size=52):
     return f'<span style="font-size:{size//2}px;">🧠</span>'
 
 
-# -------------------- CSS --------------------
-st.markdown("""
-<style>
-#MainMenu {visibility:hidden;}
-header {visibility:hidden;}
-footer {visibility:hidden;}
-
-.logo-bar {display:flex;align-items:center;gap:14px;padding:18px 0 10px 0;}
-.logo-text {
-    font-size:2.2rem;font-weight:900;letter-spacing:5px;
-    background:linear-gradient(135deg,#6C63FF 0%,#48CAE4 100%);
-    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-    background-clip:text;margin:0;line-height:1.1;
+# -------------------- SESSION --------------------
+defaults = {
+    "authenticated": False,
+    "is_guest": False,
+    "user_id": None,
+    "email": None,
+    "mode": "PDF",
+    "current_chat_id": None,
+    "vector_db": None,
+    "guest_messages": [],
+    "logo_typed": False,
+    "theme": "dark",
 }
-.logo-tagline {font-size:0.7rem;color:#888;letter-spacing:2.5px;text-transform:uppercase;margin:0;}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
-.sidebar-logo {display:flex;align-items:center;gap:10px;padding:8px 0 14px 0;
-    border-bottom:1px solid rgba(108,99,255,0.2);margin-bottom:12px;}
-.sidebar-logo-text {font-size:1rem;font-weight:800;letter-spacing:3px;
-    background:linear-gradient(135deg,#6C63FF 0%,#48CAE4 100%);
-    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
-</style>
-""", unsafe_allow_html=True)
+
+# -------------------- THEME CSS --------------------
+def inject_theme_css(theme: str):
+    is_dark = theme == "dark"
+
+    if is_dark:
+        bg_main        = "#0f172a"
+        bg_sidebar     = "#0f172a"
+        bg_card        = "#1e293b"
+        bg_input       = "#1e293b"
+        text_primary   = "#f1f5f9"
+        text_secondary = "#94a3b8"
+        text_muted     = "#64748b"
+        border_color   = "rgba(108,99,255,0.25)"
+        divider        = "rgba(255,255,255,0.08)"
+        toggle_bg      = "#1e293b"
+        toggle_border  = "#334155"
+        toggle_label   = "☀️  Light Mode"
+        skeleton_line  = "#334155"
+        chat_msg_bg    = "#1e293b"
+    else:
+        bg_main        = "#f8fafc"
+        bg_sidebar     = "#f1f5f9"
+        bg_card        = "#ffffff"
+        bg_input       = "#ffffff"
+        text_primary   = "#0f172a"
+        text_secondary = "#475569"
+        text_muted     = "#94a3b8"
+        border_color   = "rgba(108,99,255,0.2)"
+        divider        = "rgba(0,0,0,0.07)"
+        toggle_bg      = "#ffffff"
+        toggle_border  = "#cbd5e1"
+        toggle_label   = "🌙  Dark Mode"
+        skeleton_line  = "#e2e8f0"
+        chat_msg_bg    = "#f8fafc"
+
+    st.markdown(f"""
+    <style>
+    /* ── Hide Streamlit chrome ── */
+    #MainMenu {{visibility:hidden;}}
+    header {{visibility:hidden;}}
+    footer {{visibility:hidden;}}
+
+    /* ── Global app background ── */
+    .stApp {{
+        background-color: {bg_main} !important;
+        transition: background-color 0.3s ease, color 0.3s ease;
+    }}
+    .stApp, .stApp p, .stApp span, .stApp li, .stApp label,
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4 {{
+        color: {text_primary} !important;
+    }}
+
+    /* ── Sidebar ── */
+    [data-testid="stSidebar"] {{
+        background-color: {bg_sidebar} !important;
+        border-right: 1px solid {border_color};
+        transition: background-color 0.3s ease;
+    }}
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] div {{
+        color: {text_primary} !important;
+    }}
+
+    /* ── Text inputs ── */
+    .stTextInput input,
+    .stTextArea textarea,
+    .stChatInput textarea {{
+        background-color: {bg_input} !important;
+        color: {text_primary} !important;
+        border-color: {border_color} !important;
+    }}
+
+    /* ── File uploader ── */
+    [data-testid="stFileUploader"] {{
+        background-color: {bg_card} !important;
+        border-color: {border_color} !important;
+        border-radius: 10px;
+    }}
+    [data-testid="stFileUploader"] span,
+    [data-testid="stFileUploader"] p {{
+        color: {text_secondary} !important;
+    }}
+
+    /* ── Buttons ── */
+    .stButton > button {{
+        background-color: {bg_card} !important;
+        color: {text_primary} !important;
+        border: 1px solid {border_color} !important;
+        transition: all 0.2s ease !important;
+    }}
+    .stButton > button:hover {{
+        border-color: #6C63FF !important;
+        box-shadow: 0 0 0 2px rgba(108,99,255,0.2) !important;
+    }}
+    .stButton > button[kind="primary"] {{
+        background: linear-gradient(135deg,#6C63FF,#48CAE4) !important;
+        color: white !important;
+        border: none !important;
+    }}
+
+    /* ── Chat messages ── */
+    [data-testid="stChatMessage"] {{
+        background-color: {chat_msg_bg} !important;
+        border: 1px solid {border_color};
+        border-radius: 12px;
+        margin-bottom: 6px;
+        transition: background-color 0.3s ease;
+    }}
+    [data-testid="stChatMessage"] p,
+    [data-testid="stChatMessage"] li,
+    [data-testid="stChatMessage"] span {{
+        color: {text_primary} !important;
+    }}
+
+    /* ── Tabs ── */
+    .stTabs [data-baseweb="tab-list"] {{
+        background-color: {bg_card} !important;
+        border-radius: 8px;
+    }}
+    .stTabs [data-baseweb="tab"] {{
+        color: {text_secondary} !important;
+    }}
+    .stTabs [aria-selected="true"] {{
+        color: #6C63FF !important;
+    }}
+
+    /* ── Alert / info / warning ── */
+    [data-testid="stAlert"] {{
+        background-color: {bg_card} !important;
+        border-color: {border_color} !important;
+    }}
+    [data-testid="stAlert"] p {{
+        color: {text_primary} !important;
+    }}
+
+    /* ── Dividers ── */
+    hr {{
+        border-color: {divider} !important;
+    }}
+
+    /* ── Caption ── */
+    .stCaption, [data-testid="stCaptionContainer"] p {{
+        color: {text_muted} !important;
+    }}
+
+    /* ── Selectbox / radio ── */
+    .stRadio > div > label,
+    .stSelectbox > div > label {{
+        color: {text_primary} !important;
+    }}
+
+    /* ── Toggle button styling ── */
+    .theme-toggle {{
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        width: 100%;
+        padding: 8px 16px;
+        border-radius: 20px;
+        border: 1px solid {toggle_border};
+        background: {toggle_bg};
+        color: {text_primary};
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.25s ease;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+        letter-spacing: 0.3px;
+        margin-bottom: 2px;
+    }}
+    .theme-toggle:hover {{
+        border-color: #6C63FF;
+        box-shadow: 0 0 0 2px rgba(108,99,255,0.18);
+    }}
+
+    /* ── Logo ── */
+    .logo-bar {{
+        display:flex; align-items:center; gap:14px;
+        padding:18px 0 10px 0;
+    }}
+    .logo-text {{
+        font-size:2.2rem; font-weight:900; letter-spacing:5px;
+        background:linear-gradient(135deg,#6C63FF 0%,#48CAE4 100%);
+        -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+        background-clip:text; margin:0; line-height:1.1;
+    }}
+    .logo-tagline {{
+        font-size:0.7rem; color:{text_muted};
+        letter-spacing:2.5px; text-transform:uppercase; margin:0;
+    }}
+    .sidebar-logo {{
+        display:flex; align-items:center; gap:10px;
+        padding:8px 0 14px 0;
+        border-bottom:1px solid {border_color};
+        margin-bottom:12px;
+    }}
+    .sidebar-logo-text {{
+        font-size:1rem; font-weight:800; letter-spacing:3px;
+        background:linear-gradient(135deg,#6C63FF 0%,#48CAE4 100%);
+        -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+        background-clip:text;
+    }}
+
+    /* ── Welcome screen hint ── */
+    .ss-tagline {{ color: {text_muted} !important; }}
+    </style>
+    """, unsafe_allow_html=True)
+
+    return toggle_label
 
 
 # -------------------- FIREBASE --------------------
@@ -95,21 +302,8 @@ if not firebase_admin._apps:
 db = firestore.client()
 
 
-# -------------------- SESSION --------------------
-defaults = {
-    "authenticated": False,
-    "is_guest": False,
-    "user_id": None,
-    "email": None,
-    "mode": "PDF",
-    "current_chat_id": None,
-    "vector_db": None,
-    "guest_messages": [],
-    "logo_typed": False,
-}
-for k, v in defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+# -------------------- INJECT THEME (runs every rerun) --------------------
+toggle_label = inject_theme_css(st.session_state.theme)
 
 
 # -------------------- HELPERS --------------------
@@ -147,17 +341,6 @@ def type_text_logo():
             </div>""", unsafe_allow_html=True)
         time.sleep(0.07)
     st.session_state.logo_typed = True
-
-
-def render_logo():
-    st.markdown(f"""
-        <div class="logo-bar">
-            {logo_img_tag(56)}
-            <div>
-                <p class="logo-text">SLIDESENSE</p>
-                <p class="logo-tagline">AI · PDF · Image Analyzer</p>
-            </div>
-        </div>""", unsafe_allow_html=True)
 
 
 def render_answer_with_copy(answer: str) -> None:
@@ -297,6 +480,11 @@ def load_llm():
     )
 
 
+@st.cache_resource
+def get_embeddings():
+    return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+
+
 # ==================== AUTH SCREEN ====================
 if not st.session_state.authenticated and not st.session_state.is_guest:
 
@@ -388,6 +576,11 @@ with st.sidebar:
     else:
         st.success(f"👤 {st.session_state.email}")
 
+    # ── Theme Toggle ──
+    if st.button(toggle_label, use_container_width=True, key="theme_toggle"):
+        st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
+        st.rerun()
+
     if st.button("🚪 Logout", use_container_width=True):
         for k in defaults:
             st.session_state[k] = defaults[k]
@@ -428,77 +621,84 @@ with st.sidebar:
             st.rerun()
 
 
-# ==================== WELCOME SCREEN (after login, before chat) ====================
+# ==================== WELCOME SCREEN ====================
 if not st.session_state.current_chat_id:
-    col1, col2, col3 = st.columns([1,2,1])
-    with col2:
-        components.html("""<!DOCTYPE html>
-<html><head><style>
-* { box-sizing:border-box; margin:0; padding:0; }
-body {
-  display:flex; flex-direction:column;
-  align-items:center; justify-content:center;
-  background:transparent;
-  font-family:'Segoe UI', sans-serif;
-  padding:40px 0 30px 0;
-}
-.ss-svg { width:200px; height:200px; }
-
-.slide-back { animation: ssSlideIn 0.8s ease-out forwards; }
-.slide-front { animation: ssSlideIn 0.8s 0.2s ease-out forwards; opacity:0; }
-
-.ss-node { animation: ssPulse 2s infinite ease-in-out; }
-.ss-node-1 { animation-delay:0.5s; }
-.ss-node-2 { animation-delay:0.8s; }
-.ss-node-3 { animation-delay:1.1s; }
-
-.ss-arrow {
-  stroke-dasharray:100; stroke-dashoffset:100;
-  animation: ssDraw 1s 1.2s cubic-bezier(0.16,1,0.3,1) forwards;
-}
-.ss-hint {
-  margin-top:24px; font-size:13px;
-  color:#6C63FF; letter-spacing:0.5px;
-  background:rgba(108,99,255,0.08);
-  border:1px solid rgba(108,99,255,0.3);
-  border-radius:10px; padding:10px 20px;
-  opacity:0; animation: ssFade 1s 2s forwards;
-  text-align:center;
-}
-
-@keyframes ssSlideIn {
-  from { transform:translateX(-30px); opacity:0; }
-  to   { transform:translateX(0);     opacity:1; }
-}
-@keyframes ssPulse {
-  0%  { fill:#0ea5e9; }
-  50% { fill:#38bdf8; filter:drop-shadow(0 0 3px #38bdf8); }
-  100%{ fill:#0ea5e9; }
-}
-@keyframes ssDraw { to { stroke-dashoffset:0; } }
-@keyframes ssFade { to { opacity:1; } }
-</style></head>
-<body>
-  <svg class="ss-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-    <path class="slide-back"
-      d="M30 20 H65 A5 5 0 0 1 70 25 V75 A5 5 0 0 1 65 80 H30 A5 5 0 0 1 25 75 V25 A5 5 0 0 1 30 20"
-      fill="#0369a1"/>
-    <path class="slide-front"
-      d="M35 25 H70 A5 5 0 0 1 75 30 V80 A5 5 0 0 1 70 85 H35 A5 5 0 0 1 30 80 V30 A5 5 0 0 1 35 25"
-      fill="#0ea5e9"/>
-    <circle cx="55" cy="55" r="22" fill="white" stroke="#0c4a6e" stroke-width="3"/>
-    <circle class="ss-node ss-node-1" cx="48" cy="52" r="2" fill="#0ea5e9"/>
-    <circle class="ss-node ss-node-2" cx="55" cy="48" r="2" fill="#0ea5e9"/>
-    <circle class="ss-node ss-node-3" cx="53" cy="58" r="2" fill="#0ea5e9"/>
-    <line x1="48" y1="52" x2="55" y2="48" stroke="#cbd5e1" stroke-width="0.5"/>
-    <line x1="55" y1="48" x2="53" y2="58" stroke="#cbd5e1" stroke-width="0.5"/>
-    <path class="ss-arrow"
-      d="M45 65 L75 35 M75 35 L68 35 M75 35 L75 42"
-      stroke="#0ea5e9" stroke-width="4"
-      stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-  </svg>
-  <div class="ss-hint">&#x1F448; Select &#xFF0B; New Chat from the sidebar to begin</div>
-</body></html>""", height=340)
+    st.markdown("""
+    <style>
+    .ss-wrap {
+        display:flex; flex-direction:column;
+        align-items:center; justify-content:center;
+        padding:60px 0 40px 0;
+    }
+    .ss-svg { width:220px; height:220px; }
+    .slide-back { animation: ssSlideIn 0.8s ease-out forwards; }
+    .slide-front { animation: ssSlideIn 0.8s 0.2s ease-out forwards; opacity:0; }
+    .ss-node { animation: ssPulse 2s infinite ease-in-out; }
+    .ss-node-1 { animation-delay:0.5s; }
+    .ss-node-2 { animation-delay:0.8s; }
+    .ss-node-3 { animation-delay:1.1s; }
+    .ss-arrow {
+        stroke-dasharray:100; stroke-dashoffset:100;
+        animation: ssDraw 1s 1.2s cubic-bezier(0.16,1,0.3,1) forwards;
+    }
+    .ss-brand {
+        font-size:44px; font-weight:900; letter-spacing:5px;
+        background:linear-gradient(135deg,#6C63FF 0%,#48CAE4 100%);
+        -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+        background-clip:text; margin-top:14px;
+        opacity:0; animation: ssFadeUp 0.8s 1.5s forwards;
+    }
+    .ss-tagline {
+        font-size:14px; letter-spacing:2px;
+        text-transform:uppercase; margin-top:6px;
+        opacity:0; animation: ssFade 1s 2s forwards;
+    }
+    .ss-hint {
+        margin-top:28px; font-size:14px; color:#6C63FF;
+        opacity:0; animation: ssFade 1s 2.5s forwards;
+        background:rgba(108,99,255,0.08);
+        border:1px solid rgba(108,99,255,0.3);
+        border-radius:10px; padding:10px 24px;
+    }
+    @keyframes ssSlideIn {
+        from { transform:translateX(-30px); opacity:0; }
+        to   { transform:translateX(0);     opacity:1; }
+    }
+    @keyframes ssPulse {
+        0%,100% { fill:#0ea5e9; }
+        50%      { fill:#38bdf8; filter:drop-shadow(0 0 3px #38bdf8); }
+    }
+    @keyframes ssDraw { to { stroke-dashoffset:0; } }
+    @keyframes ssFadeUp {
+        from { opacity:0; transform:translateY(12px); }
+        to   { opacity:1; transform:translateY(0); }
+    }
+    @keyframes ssFade { to { opacity:1; } }
+    </style>
+    <div class="ss-wrap">
+        <svg class="ss-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <path class="slide-back"
+                d="M30 20 H65 A5 5 0 0 1 70 25 V75 A5 5 0 0 1 65 80 H30 A5 5 0 0 1 25 75 V25 A5 5 0 0 1 30 20"
+                fill="#0369a1"/>
+            <path class="slide-front"
+                d="M35 25 H70 A5 5 0 0 1 75 30 V80 A5 5 0 0 1 70 85 H35 A5 5 0 0 1 30 80 V30 A5 5 0 0 1 35 25"
+                fill="#0ea5e9"/>
+            <circle cx="55" cy="55" r="22" fill="white" stroke="#0c4a6e" stroke-width="3"/>
+            <circle class="ss-node ss-node-1" cx="48" cy="52" r="2" fill="#0ea5e9"/>
+            <circle class="ss-node ss-node-2" cx="55" cy="48" r="2" fill="#0ea5e9"/>
+            <circle class="ss-node ss-node-3" cx="53" cy="58" r="2" fill="#0ea5e9"/>
+            <line x1="48" y1="52" x2="55" y2="48" stroke="#cbd5e1" stroke-width="0.5"/>
+            <line x1="55" y1="48" x2="53" y2="58" stroke="#cbd5e1" stroke-width="0.5"/>
+            <path class="ss-arrow"
+                d="M45 65 L75 35 M75 35 L68 35 M75 35 L75 42"
+                stroke="#0ea5e9" stroke-width="4"
+                stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+        <div class="ss-brand">SLIDESENSE</div>
+        <div class="ss-tagline">PDF &amp; Image Q&amp;A</div>
+        <div class="ss-hint">👈 Select ➕ New Chat from the sidebar to begin</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # ==================== CHAT SCREEN ====================
@@ -582,11 +782,12 @@ body {
         st.divider()
 
         pdf = st.file_uploader("Upload PDF", type="pdf")
+
         if pdf and st.session_state.vector_db is None:
-            # Show custom PDF scanning animation using components.html (supports CSS animations)
             anim_slot = st.empty()
-            with anim_slot:
-                components.html("""<!DOCTYPE html>
+            try:
+                with anim_slot:
+                    components.html("""<!DOCTYPE html>
 <html>
 <head>
 <style>
@@ -595,15 +796,16 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
-    height: 120px;
+    height: 100%;
     margin: 0;
-    font-family: 'Inter', 'Segoe UI', sans-serif;
+    font-family: 'Inter', sans-serif;
   }
   .loader-wrapper {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 15px;
+    padding: 20px 0;
   }
   .pdf-box {
     position: relative;
@@ -637,7 +839,7 @@ body {
   }
   .status-text {
     color: #94a3b8;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
     letter-spacing: 0.5px;
   }
@@ -663,28 +865,33 @@ body {
     <div class="pdf-box">
       <div class="laser"></div>
       <div class="content-lines">
-        <div class="line" style="width:100%"></div>
-        <div class="line" style="width:80%"></div>
-        <div class="line" style="width:90%"></div>
-        <div class="line" style="width:60%"></div>
-        <div class="line" style="width:85%"></div>
+        <div class="line" style="width: 100%"></div>
+        <div class="line" style="width: 80%"></div>
+        <div class="line" style="width: 90%"></div>
+        <div class="line" style="width: 60%"></div>
+        <div class="line" style="width: 85%"></div>
       </div>
     </div>
     <div class="status-text">Analyzing the PDF<span class="dots"></span></div>
   </div>
 </body>
-</html>""", height=150)
+</html>""", height=140)
 
-            reader = PdfReader(pdf)
-            text = "".join(p.extract_text() or "" for p in reader.pages)
-            splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=150)
-            chunks = splitter.split_text(text)
-            emb = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-            st.session_state.vector_db = FAISS.from_texts(chunks, emb)
+                reader = PdfReader(pdf)
+                text = "".join(p.extract_text() or "" for p in reader.pages)
+                if not text.strip():
+                    st.warning("⚠️ This PDF appears to be scanned or image-based. No extractable text found.")
+                else:
+                    splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=150)
+                    chunks = splitter.split_text(text)
+                    emb = get_embeddings()
+                    st.session_state.vector_db = FAISS.from_texts(chunks, emb)
 
-            # Clear animation and show success
-            anim_slot.empty()
-            st.success("✅ PDF processed! Ask your questions below.")
+            finally:
+                anim_slot.empty()
+
+            if st.session_state.vector_db is not None:
+                st.success("✅ PDF processed! Ask your questions below.")
 
     else:
         ac, tc = st.columns([1, 4])
@@ -698,11 +905,7 @@ body {
   font-family:'Segoe UI', sans-serif;
   height:130px; overflow:hidden;
 }
-.scene {
-  position:relative; width:200px; height:120px;
-}
-
-/* Image card */
+.scene { position:relative; width:200px; height:120px; }
 .img-card {
   position:absolute; left:0; top:10px;
   width:65px; height:90px;
@@ -712,27 +915,21 @@ body {
   overflow:hidden;
   animation:cardFloat 3s ease-in-out infinite;
 }
-/* mountain svg inside card */
 .img-card svg { width:100%; height:100%; }
-
-/* Search bar */
 .search-bar {
   position:absolute; left:38px; top:4px;
   width:150px; height:28px;
-  background:white;
-  border-radius:20px;
+  background:white; border-radius:20px;
   box-shadow:0 4px 15px rgba(0,0,0,0.15);
   display:flex; align-items:center;
   padding:0 8px; gap:5px;
-  animation:slideInDown 0.6s ease-out forwards;
-  opacity:0;
+  animation:slideInDown 0.6s ease-out forwards; opacity:0;
 }
 .search-icon { color:#9ca3af; font-size:11px; flex-shrink:0; }
 .search-text {
   font-size:9px; color:#374151; font-weight:500;
   white-space:nowrap; overflow:hidden;
-  border-right:1.5px solid #374151;
-  width:0;
+  border-right:1.5px solid #374151; width:0;
   animation:typeText 1s 0.8s steps(12) forwards;
 }
 .search-btn {
@@ -740,11 +937,8 @@ body {
   background:#3b82f6; border-radius:6px;
   display:flex; align-items:center; justify-content:center;
   font-size:9px; color:white; flex-shrink:0;
-  animation:btnPop 0.3s 1.8s ease-out both;
-  transform:scale(0);
+  animation:btnPop 0.3s 1.8s ease-out both; transform:scale(0);
 }
-
-/* Response bubble */
 .response-bubble {
   position:absolute; right:0; bottom:0;
   width:100px; height:48px;
@@ -756,46 +950,26 @@ body {
   transform:scale(0); transform-origin:bottom left;
 }
 .response-bubble::after {
-  content:"";
-  position:absolute; bottom:-8px; left:12px;
+  content:""; position:absolute; bottom:-8px; left:12px;
   width:0; height:0;
   border-left:8px solid transparent;
-  border-right:0px solid transparent;
   border-top:8px solid #10b981;
 }
 .response-inner {
-  background:rgba(255,255,255,0.25);
-  border-radius:6px; padding:5px 10px;
-  font-size:9px; font-weight:600; color:white;
+  background:rgba(255,255,255,0.25); border-radius:6px;
+  padding:5px 10px; font-size:9px; font-weight:600; color:white;
   letter-spacing:0.3px;
   animation:fadeIn 0.3s 2.4s ease-out both; opacity:0;
 }
-
-@keyframes cardFloat {
-  0%,100% { transform:translateY(0px); }
-  50%      { transform:translateY(-5px); }
-}
-@keyframes slideInDown {
-  from { opacity:0; transform:translateY(-10px); }
-  to   { opacity:1; transform:translateY(0); }
-}
-@keyframes typeText {
-  from { width:0; }
-  to   { width:72px; border-right:none; }
-}
-@keyframes btnPop {
-  to { transform:scale(1); }
-}
-@keyframes bubblePop {
-  to { transform:scale(1); }
-}
-@keyframes fadeIn {
-  to { opacity:1; }
-}
+@keyframes cardFloat { 0%,100%{transform:translateY(0px);} 50%{transform:translateY(-5px);} }
+@keyframes slideInDown { from{opacity:0;transform:translateY(-10px);} to{opacity:1;transform:translateY(0);} }
+@keyframes typeText { from{width:0;} to{width:72px;border-right:none;} }
+@keyframes btnPop { to{transform:scale(1);} }
+@keyframes bubblePop { to{transform:scale(1);} }
+@keyframes fadeIn { to{opacity:1;} }
 </style></head>
 <body>
 <div class="scene">
-  <!-- Image Card with mountain SVG -->
   <div class="img-card">
     <svg viewBox="0 0 65 90" xmlns="http://www.w3.org/2000/svg">
       <rect width="65" height="90" fill="#bfdbfe"/>
@@ -804,20 +978,15 @@ body {
       <polygon points="28,80 45,42 65,80" fill="#1d4ed8" opacity="0.7"/>
       <polygon points="24,42 32,28 40,42" fill="white" opacity="0.9"/>
       <rect y="60" width="65" height="30" fill="#1e3a8a" opacity="0.5"/>
-      <!-- clouds -->
       <ellipse cx="12" cy="18" rx="8" ry="4" fill="white" opacity="0.7"/>
       <ellipse cx="50" cy="14" rx="6" ry="3" fill="white" opacity="0.6"/>
     </svg>
   </div>
-
-  <!-- Search Bar -->
   <div class="search-bar">
     <span class="search-icon">🔍</span>
     <span class="search-text">What is this?</span>
     <div class="search-btn">🔍</div>
   </div>
-
-  <!-- Response Bubble -->
   <div class="response-bubble">
     <div class="response-inner">A Mountain</div>
   </div>
@@ -883,16 +1052,128 @@ body {
             if not active_image:
                 answer = "⚠️ Please upload an image or take a photo first."
             else:
-                with st.spinner("🖼 Analyzing image..."):
+                img_anim_slot = st.empty()
+                try:
+                    with img_anim_slot:
+                        components.html("""<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body {
+    background: transparent;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    margin: 0;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .qa-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 0;
+  }
+  .viewport {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    background: rgba(99, 102, 241, 0.05);
+    border-radius: 4px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  .viewport::before, .viewport::after {
+    content: '';
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    border: 2px solid transparent;
+    box-sizing: border-box;
+    animation: focus-pulse 2s ease-in-out infinite;
+  }
+  .viewport::before {
+    border-top-color: #818cf8;
+    border-left-color: #818cf8;
+    top: 0; left: 0;
+  }
+  .viewport::after {
+    border-bottom-color: #818cf8;
+    border-right-color: #818cf8;
+    bottom: 0; right: 0;
+  }
+  .crosshair {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #38bdf8;
+    border-radius: 50%;
+    position: absolute;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    animation: ai-search 4s infinite linear;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+  }
+  .crosshair::after {
+    content: '';
+    width: 2px;
+    height: 2px;
+    background: #38bdf8;
+    border-radius: 50%;
+  }
+  .status {
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+  }
+  @keyframes focus-pulse {
+    0%, 100% { width: 100%; height: 100%; opacity: 0.8; }
+    50% { width: 85%; height: 85%; opacity: 0.3; }
+  }
+  @keyframes ai-search {
+    0%   { transform: translate(-15px, -15px); }
+    25%  { transform: translate(15px, -10px); }
+    50%  { transform: translate(10px, 15px); }
+    75%  { transform: translate(-12px, 10px); }
+    100% { transform: translate(-15px, -15px); }
+  }
+  .dots::after {
+    content: '';
+    animation: dots 1.5s steps(4, end) infinite;
+  }
+  @keyframes dots {
+    0%, 20% { content: ''; }
+    40%  { content: '.'; }
+    60%  { content: '..'; }
+    80%  { content: '...'; }
+  }
+</style>
+</head>
+<body>
+  <div class="qa-box">
+    <div class="viewport">
+      <div class="crosshair"></div>
+    </div>
+    <div class="status">Analyzing image<span class="dots"></span></div>
+  </div>
+</body>
+</html>""", height=120)
+
                     image_bytes = active_image.getvalue()
                     encoded = base64.b64encode(image_bytes).decode("utf-8")
-                    mime = "image/jpeg" if (camera_file and not img_file) else \
-                           ("image/png" if img_file.name.lower().endswith(".png") else "image/jpeg")
+                    mime = "image/jpeg"
+                    if img_file and img_file.name.lower().endswith(".png"):
+                        mime = "image/png"
                     response = load_llm().invoke([HumanMessage(content=[
                         {"type": "text", "text": question},
                         {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}},
                     ])])
                     answer = response.content
+                finally:
+                    img_anim_slot.empty()
 
         with st.chat_message("assistant"):
             render_answer_with_copy(answer)
