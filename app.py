@@ -82,7 +82,6 @@ def inject_theme_css(theme: str):
         divider        = "rgba(255,255,255,0.08)"
         toggle_bg      = "#1e293b"
         toggle_border  = "#334155"
-        toggle_label   = "☀️  Light Mode"
         skeleton_line  = "#334155"
         chat_msg_bg    = "#1e293b"
     else:
@@ -97,7 +96,6 @@ def inject_theme_css(theme: str):
         divider        = "rgba(0,0,0,0.07)"
         toggle_bg      = "#ffffff"
         toggle_border  = "#cbd5e1"
-        toggle_label   = "🌙  Dark Mode"
         skeleton_line  = "#e2e8f0"
         chat_msg_bg    = "#f8fafc"
 
@@ -277,8 +275,6 @@ def inject_theme_css(theme: str):
     </style>
     """, unsafe_allow_html=True)
 
-    return toggle_label
-
 
 # -------------------- FIREBASE --------------------
 if not firebase_admin._apps:
@@ -303,7 +299,7 @@ db = firestore.client()
 
 
 # -------------------- INJECT THEME (runs every rerun) --------------------
-toggle_label = inject_theme_css(st.session_state.theme)
+inject_theme_css(st.session_state.theme)
 
 
 # -------------------- HELPERS --------------------
@@ -577,8 +573,10 @@ with st.sidebar:
         st.success(f"👤 {st.session_state.email}")
 
     # ── Theme Toggle ──
-    if st.button(toggle_label, use_container_width=True, key="theme_toggle"):
-        st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
+    current_is_dark = st.session_state.theme == "dark"
+    use_dark = st.toggle("🌙 Dark mode", value=current_is_dark, key="theme_toggle")
+    if use_dark != current_is_dark:
+        st.session_state.theme = "dark" if use_dark else "light"
         st.rerun()
 
     if st.button("🚪 Logout", use_container_width=True):
