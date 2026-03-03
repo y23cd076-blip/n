@@ -48,29 +48,236 @@ def logo_img_tag(size=52):
     return f'<span style="font-size:{size//2}px;">🧠</span>'
 
 
-# -------------------- CSS --------------------
-st.markdown("""
-<style>
-#MainMenu {visibility:hidden;}
-header {visibility:hidden;}
-footer {visibility:hidden;}
-
-.logo-bar {display:flex;align-items:center;gap:14px;padding:18px 0 10px 0;}
-.logo-text {
-    font-size:2.2rem;font-weight:900;letter-spacing:5px;
-    background:linear-gradient(135deg,#6C63FF 0%,#48CAE4 100%);
-    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-    background-clip:text;margin:0;line-height:1.1;
+# -------------------- SESSION --------------------
+defaults = {
+    "authenticated": False,
+    "is_guest": False,
+    "user_id": None,
+    "email": None,
+    "mode": "PDF",
+    "current_chat_id": None,
+    "vector_db": None,
+    "guest_messages": [],
+    "logo_typed": False,
+    "theme": "dark",
 }
-.logo-tagline {font-size:0.7rem;color:#888;letter-spacing:2.5px;text-transform:uppercase;margin:0;}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
-.sidebar-logo {display:flex;align-items:center;gap:10px;padding:8px 0 14px 0;
-    border-bottom:1px solid rgba(108,99,255,0.2);margin-bottom:12px;}
-.sidebar-logo-text {font-size:1rem;font-weight:800;letter-spacing:3px;
-    background:linear-gradient(135deg,#6C63FF 0%,#48CAE4 100%);
-    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
-</style>
-""", unsafe_allow_html=True)
+
+# -------------------- THEME CSS --------------------
+def inject_theme_css(theme: str):
+    is_dark = theme == "dark"
+
+    if is_dark:
+        bg_main        = "#0f172a"
+        bg_sidebar     = "#0f172a"
+        bg_card        = "#1e293b"
+        bg_input       = "#1e293b"
+        text_primary   = "#f1f5f9"
+        text_secondary = "#94a3b8"
+        text_muted     = "#64748b"
+        border_color   = "rgba(108,99,255,0.25)"
+        divider        = "rgba(255,255,255,0.08)"
+        toggle_bg      = "#1e293b"
+        toggle_border  = "#334155"
+        toggle_label   = "☀️  Light Mode"
+        skeleton_line  = "#334155"
+        chat_msg_bg    = "#1e293b"
+    else:
+        bg_main        = "#f8fafc"
+        bg_sidebar     = "#f1f5f9"
+        bg_card        = "#ffffff"
+        bg_input       = "#ffffff"
+        text_primary   = "#0f172a"
+        text_secondary = "#475569"
+        text_muted     = "#94a3b8"
+        border_color   = "rgba(108,99,255,0.2)"
+        divider        = "rgba(0,0,0,0.07)"
+        toggle_bg      = "#ffffff"
+        toggle_border  = "#cbd5e1"
+        toggle_label   = "🌙  Dark Mode"
+        skeleton_line  = "#e2e8f0"
+        chat_msg_bg    = "#f8fafc"
+
+    st.markdown(f"""
+    <style>
+    /* ── Hide Streamlit chrome ── */
+    #MainMenu {{visibility:hidden;}}
+    header {{visibility:hidden;}}
+    footer {{visibility:hidden;}}
+
+    /* ── Global app background ── */
+    .stApp {{
+        background-color: {bg_main} !important;
+        transition: background-color 0.3s ease, color 0.3s ease;
+    }}
+    .stApp, .stApp p, .stApp span, .stApp li, .stApp label,
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4 {{
+        color: {text_primary} !important;
+    }}
+
+    /* ── Sidebar ── */
+    [data-testid="stSidebar"] {{
+        background-color: {bg_sidebar} !important;
+        border-right: 1px solid {border_color};
+        transition: background-color 0.3s ease;
+    }}
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] div {{
+        color: {text_primary} !important;
+    }}
+
+    /* ── Text inputs ── */
+    .stTextInput input,
+    .stTextArea textarea,
+    .stChatInput textarea {{
+        background-color: {bg_input} !important;
+        color: {text_primary} !important;
+        border-color: {border_color} !important;
+    }}
+
+    /* ── File uploader ── */
+    [data-testid="stFileUploader"] {{
+        background-color: {bg_card} !important;
+        border-color: {border_color} !important;
+        border-radius: 10px;
+    }}
+    [data-testid="stFileUploader"] span,
+    [data-testid="stFileUploader"] p {{
+        color: {text_secondary} !important;
+    }}
+
+    /* ── Buttons ── */
+    .stButton > button {{
+        background-color: {bg_card} !important;
+        color: {text_primary} !important;
+        border: 1px solid {border_color} !important;
+        transition: all 0.2s ease !important;
+    }}
+    .stButton > button:hover {{
+        border-color: #6C63FF !important;
+        box-shadow: 0 0 0 2px rgba(108,99,255,0.2) !important;
+    }}
+    .stButton > button[kind="primary"] {{
+        background: linear-gradient(135deg,#6C63FF,#48CAE4) !important;
+        color: white !important;
+        border: none !important;
+    }}
+
+    /* ── Chat messages ── */
+    [data-testid="stChatMessage"] {{
+        background-color: {chat_msg_bg} !important;
+        border: 1px solid {border_color};
+        border-radius: 12px;
+        margin-bottom: 6px;
+        transition: background-color 0.3s ease;
+    }}
+    [data-testid="stChatMessage"] p,
+    [data-testid="stChatMessage"] li,
+    [data-testid="stChatMessage"] span {{
+        color: {text_primary} !important;
+    }}
+
+    /* ── Tabs ── */
+    .stTabs [data-baseweb="tab-list"] {{
+        background-color: {bg_card} !important;
+        border-radius: 8px;
+    }}
+    .stTabs [data-baseweb="tab"] {{
+        color: {text_secondary} !important;
+    }}
+    .stTabs [aria-selected="true"] {{
+        color: #6C63FF !important;
+    }}
+
+    /* ── Alert / info / warning ── */
+    [data-testid="stAlert"] {{
+        background-color: {bg_card} !important;
+        border-color: {border_color} !important;
+    }}
+    [data-testid="stAlert"] p {{
+        color: {text_primary} !important;
+    }}
+
+    /* ── Dividers ── */
+    hr {{
+        border-color: {divider} !important;
+    }}
+
+    /* ── Caption ── */
+    .stCaption, [data-testid="stCaptionContainer"] p {{
+        color: {text_muted} !important;
+    }}
+
+    /* ── Selectbox / radio ── */
+    .stRadio > div > label,
+    .stSelectbox > div > label {{
+        color: {text_primary} !important;
+    }}
+
+    /* ── Toggle button styling ── */
+    .theme-toggle {{
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        width: 100%;
+        padding: 8px 16px;
+        border-radius: 20px;
+        border: 1px solid {toggle_border};
+        background: {toggle_bg};
+        color: {text_primary};
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.25s ease;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+        letter-spacing: 0.3px;
+        margin-bottom: 2px;
+    }}
+    .theme-toggle:hover {{
+        border-color: #6C63FF;
+        box-shadow: 0 0 0 2px rgba(108,99,255,0.18);
+    }}
+
+    /* ── Logo ── */
+    .logo-bar {{
+        display:flex; align-items:center; gap:14px;
+        padding:18px 0 10px 0;
+    }}
+    .logo-text {{
+        font-size:2.2rem; font-weight:900; letter-spacing:5px;
+        background:linear-gradient(135deg,#6C63FF 0%,#48CAE4 100%);
+        -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+        background-clip:text; margin:0; line-height:1.1;
+    }}
+    .logo-tagline {{
+        font-size:0.7rem; color:{text_muted};
+        letter-spacing:2.5px; text-transform:uppercase; margin:0;
+    }}
+    .sidebar-logo {{
+        display:flex; align-items:center; gap:10px;
+        padding:8px 0 14px 0;
+        border-bottom:1px solid {border_color};
+        margin-bottom:12px;
+    }}
+    .sidebar-logo-text {{
+        font-size:1rem; font-weight:800; letter-spacing:3px;
+        background:linear-gradient(135deg,#6C63FF 0%,#48CAE4 100%);
+        -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+        background-clip:text;
+    }}
+
+    /* ── Welcome screen hint ── */
+    .ss-tagline {{ color: {text_muted} !important; }}
+    </style>
+    """, unsafe_allow_html=True)
+
+    return toggle_label
 
 
 # -------------------- FIREBASE --------------------
@@ -95,21 +302,8 @@ if not firebase_admin._apps:
 db = firestore.client()
 
 
-# -------------------- SESSION --------------------
-defaults = {
-    "authenticated": False,
-    "is_guest": False,
-    "user_id": None,
-    "email": None,
-    "mode": "PDF",
-    "current_chat_id": None,
-    "vector_db": None,
-    "guest_messages": [],
-    "logo_typed": False,
-}
-for k, v in defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+# -------------------- INJECT THEME (runs every rerun) --------------------
+toggle_label = inject_theme_css(st.session_state.theme)
 
 
 # -------------------- HELPERS --------------------
@@ -147,17 +341,6 @@ def type_text_logo():
             </div>""", unsafe_allow_html=True)
         time.sleep(0.07)
     st.session_state.logo_typed = True
-
-
-def render_logo():
-    st.markdown(f"""
-        <div class="logo-bar">
-            {logo_img_tag(56)}
-            <div>
-                <p class="logo-text">SLIDESENSE</p>
-                <p class="logo-tagline">AI · PDF · Image Analyzer</p>
-            </div>
-        </div>""", unsafe_allow_html=True)
 
 
 def render_answer_with_copy(answer: str) -> None:
@@ -393,6 +576,11 @@ with st.sidebar:
     else:
         st.success(f"👤 {st.session_state.email}")
 
+    # ── Theme Toggle ──
+    if st.button(toggle_label, use_container_width=True, key="theme_toggle"):
+        st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
+        st.rerun()
+
     if st.button("🚪 Logout", use_container_width=True):
         for k in defaults:
             st.session_state[k] = defaults[k]
@@ -433,7 +621,7 @@ with st.sidebar:
             st.rerun()
 
 
-# ==================== WELCOME SCREEN (after login, before chat) ====================
+# ==================== WELCOME SCREEN ====================
 if not st.session_state.current_chat_id:
     st.markdown("""
     <style>
@@ -443,15 +631,12 @@ if not st.session_state.current_chat_id:
         padding:60px 0 40px 0;
     }
     .ss-svg { width:220px; height:220px; }
-
     .slide-back { animation: ssSlideIn 0.8s ease-out forwards; }
     .slide-front { animation: ssSlideIn 0.8s 0.2s ease-out forwards; opacity:0; }
-
     .ss-node { animation: ssPulse 2s infinite ease-in-out; }
     .ss-node-1 { animation-delay:0.5s; }
     .ss-node-2 { animation-delay:0.8s; }
     .ss-node-3 { animation-delay:1.1s; }
-
     .ss-arrow {
         stroke-dasharray:100; stroke-dashoffset:100;
         animation: ssDraw 1s 1.2s cubic-bezier(0.16,1,0.3,1) forwards;
@@ -464,7 +649,7 @@ if not st.session_state.current_chat_id:
         opacity:0; animation: ssFadeUp 0.8s 1.5s forwards;
     }
     .ss-tagline {
-        font-size:14px; color:#888; letter-spacing:2px;
+        font-size:14px; letter-spacing:2px;
         text-transform:uppercase; margin-top:6px;
         opacity:0; animation: ssFade 1s 2s forwards;
     }
@@ -475,7 +660,6 @@ if not st.session_state.current_chat_id:
         border:1px solid rgba(108,99,255,0.3);
         border-radius:10px; padding:10px 24px;
     }
-
     @keyframes ssSlideIn {
         from { transform:translateX(-30px); opacity:0; }
         to   { transform:translateX(0);     opacity:1; }
@@ -491,7 +675,6 @@ if not st.session_state.current_chat_id:
     }
     @keyframes ssFade { to { opacity:1; } }
     </style>
-
     <div class="ss-wrap">
         <svg class="ss-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
             <path class="slide-back"
@@ -696,15 +879,19 @@ body {
 
                 reader = PdfReader(pdf)
                 text = "".join(p.extract_text() or "" for p in reader.pages)
-                splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=150)
-                chunks = splitter.split_text(text)
-                emb = get_embeddings()
-                st.session_state.vector_db = FAISS.from_texts(chunks, emb)
+                if not text.strip():
+                    st.warning("⚠️ This PDF appears to be scanned or image-based. No extractable text found.")
+                else:
+                    splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=150)
+                    chunks = splitter.split_text(text)
+                    emb = get_embeddings()
+                    st.session_state.vector_db = FAISS.from_texts(chunks, emb)
 
             finally:
                 anim_slot.empty()
 
-            st.success("✅ PDF processed! Ask your questions below.")
+            if st.session_state.vector_db is not None:
+                st.success("✅ PDF processed! Ask your questions below.")
 
     else:
         ac, tc = st.columns([1, 4])
@@ -718,9 +905,7 @@ body {
   font-family:'Segoe UI', sans-serif;
   height:130px; overflow:hidden;
 }
-.scene {
-  position:relative; width:200px; height:120px;
-}
+.scene { position:relative; width:200px; height:120px; }
 .img-card {
   position:absolute; left:0; top:10px;
   width:65px; height:90px;
@@ -734,20 +919,17 @@ body {
 .search-bar {
   position:absolute; left:38px; top:4px;
   width:150px; height:28px;
-  background:white;
-  border-radius:20px;
+  background:white; border-radius:20px;
   box-shadow:0 4px 15px rgba(0,0,0,0.15);
   display:flex; align-items:center;
   padding:0 8px; gap:5px;
-  animation:slideInDown 0.6s ease-out forwards;
-  opacity:0;
+  animation:slideInDown 0.6s ease-out forwards; opacity:0;
 }
 .search-icon { color:#9ca3af; font-size:11px; flex-shrink:0; }
 .search-text {
   font-size:9px; color:#374151; font-weight:500;
   white-space:nowrap; overflow:hidden;
-  border-right:1.5px solid #374151;
-  width:0;
+  border-right:1.5px solid #374151; width:0;
   animation:typeText 1s 0.8s steps(12) forwards;
 }
 .search-btn {
@@ -755,8 +937,7 @@ body {
   background:#3b82f6; border-radius:6px;
   display:flex; align-items:center; justify-content:center;
   font-size:9px; color:white; flex-shrink:0;
-  animation:btnPop 0.3s 1.8s ease-out both;
-  transform:scale(0);
+  animation:btnPop 0.3s 1.8s ease-out both; transform:scale(0);
 }
 .response-bubble {
   position:absolute; right:0; bottom:0;
@@ -769,35 +950,23 @@ body {
   transform:scale(0); transform-origin:bottom left;
 }
 .response-bubble::after {
-  content:"";
-  position:absolute; bottom:-8px; left:12px;
+  content:""; position:absolute; bottom:-8px; left:12px;
   width:0; height:0;
   border-left:8px solid transparent;
-  border-right:0px solid transparent;
   border-top:8px solid #10b981;
 }
 .response-inner {
-  background:rgba(255,255,255,0.25);
-  border-radius:6px; padding:5px 10px;
-  font-size:9px; font-weight:600; color:white;
+  background:rgba(255,255,255,0.25); border-radius:6px;
+  padding:5px 10px; font-size:9px; font-weight:600; color:white;
   letter-spacing:0.3px;
   animation:fadeIn 0.3s 2.4s ease-out both; opacity:0;
 }
-@keyframes cardFloat {
-  0%,100% { transform:translateY(0px); }
-  50%      { transform:translateY(-5px); }
-}
-@keyframes slideInDown {
-  from { opacity:0; transform:translateY(-10px); }
-  to   { opacity:1; transform:translateY(0); }
-}
-@keyframes typeText {
-  from { width:0; }
-  to   { width:72px; border-right:none; }
-}
-@keyframes btnPop { to { transform:scale(1); } }
-@keyframes bubblePop { to { transform:scale(1); } }
-@keyframes fadeIn { to { opacity:1; } }
+@keyframes cardFloat { 0%,100%{transform:translateY(0px);} 50%{transform:translateY(-5px);} }
+@keyframes slideInDown { from{opacity:0;transform:translateY(-10px);} to{opacity:1;transform:translateY(0);} }
+@keyframes typeText { from{width:0;} to{width:72px;border-right:none;} }
+@keyframes btnPop { to{transform:scale(1);} }
+@keyframes bubblePop { to{transform:scale(1);} }
+@keyframes fadeIn { to{opacity:1;} }
 </style></head>
 <body>
 <div class="scene">
