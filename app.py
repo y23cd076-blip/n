@@ -59,225 +59,106 @@ defaults = {
     "vector_db": None,
     "guest_messages": [],
     "logo_typed": False,
-    "theme": "dark",
 }
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
 
-# -------------------- THEME CSS --------------------
-def inject_theme_css(theme: str):
-    is_dark = theme == "dark"
+# -------------------- CSS (Light Mode) --------------------
+st.markdown("""
+<style>
+#MainMenu {visibility:hidden;}
+header {visibility:hidden;}
+footer {visibility:hidden;}
 
-    if is_dark:
-        bg_main        = "#0f172a"
-        bg_sidebar     = "#0f172a"
-        bg_card        = "#1e293b"
-        bg_input       = "#1e293b"
-        text_primary   = "#f1f5f9"
-        text_secondary = "#94a3b8"
-        text_muted     = "#64748b"
-        border_color   = "rgba(108,99,255,0.25)"
-        divider        = "rgba(255,255,255,0.08)"
-        toggle_bg      = "#1e293b"
-        toggle_border  = "#334155"
-        toggle_label   = "☀️  Light Mode"
-        skeleton_line  = "#334155"
-        chat_msg_bg    = "#1e293b"
-    else:
-        bg_main        = "#f8fafc"
-        bg_sidebar     = "#f1f5f9"
-        bg_card        = "#ffffff"
-        bg_input       = "#ffffff"
-        text_primary   = "#0f172a"
-        text_secondary = "#475569"
-        text_muted     = "#94a3b8"
-        border_color   = "rgba(108,99,255,0.2)"
-        divider        = "rgba(0,0,0,0.07)"
-        toggle_bg      = "#ffffff"
-        toggle_border  = "#cbd5e1"
-        toggle_label   = "🌙  Dark Mode"
-        skeleton_line  = "#e2e8f0"
-        chat_msg_bg    = "#f8fafc"
+.stApp { background-color: #f8fafc !important; }
+.stApp, .stApp p, .stApp span, .stApp li, .stApp label,
+.stApp h1, .stApp h2, .stApp h3, .stApp h4 { color: #0f172a !important; }
 
-    st.markdown(f"""
-    <style>
-    /* ── Hide Streamlit chrome ── */
-    #MainMenu {{visibility:hidden;}}
-    header {{visibility:hidden;}}
-    footer {{visibility:hidden;}}
+[data-testid="stSidebar"] {
+    background-color: #f1f5f9 !important;
+    border-right: 1px solid rgba(108,99,255,0.2);
+}
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] div { color: #0f172a !important; }
 
-    /* ── Global app background ── */
-    .stApp {{
-        background-color: {bg_main} !important;
-        transition: background-color 0.3s ease, color 0.3s ease;
-    }}
-    .stApp, .stApp p, .stApp span, .stApp li, .stApp label,
-    .stApp h1, .stApp h2, .stApp h3, .stApp h4 {{
-        color: {text_primary} !important;
-    }}
+.stTextInput input, .stTextArea textarea, .stChatInput textarea {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    border-color: rgba(108,99,255,0.2) !important;
+}
 
-    /* ── Sidebar ── */
-    [data-testid="stSidebar"] {{
-        background-color: {bg_sidebar} !important;
-        border-right: 1px solid {border_color};
-        transition: background-color 0.3s ease;
-    }}
-    [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] span,
-    [data-testid="stSidebar"] label,
-    [data-testid="stSidebar"] div {{
-        color: {text_primary} !important;
-    }}
+[data-testid="stFileUploader"] {
+    background-color: #ffffff !important;
+    border-color: rgba(108,99,255,0.2) !important;
+    border-radius: 10px;
+}
+[data-testid="stFileUploader"] span,
+[data-testid="stFileUploader"] p { color: #475569 !important; }
 
-    /* ── Text inputs ── */
-    .stTextInput input,
-    .stTextArea textarea,
-    .stChatInput textarea {{
-        background-color: {bg_input} !important;
-        color: {text_primary} !important;
-        border-color: {border_color} !important;
-    }}
+.stButton > button {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    border: 1px solid rgba(108,99,255,0.2) !important;
+    transition: all 0.2s ease !important;
+}
+.stButton > button:hover {
+    border-color: #6C63FF !important;
+    box-shadow: 0 0 0 2px rgba(108,99,255,0.2) !important;
+}
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg,#6C63FF,#48CAE4) !important;
+    color: white !important;
+    border: none !important;
+}
 
-    /* ── File uploader ── */
-    [data-testid="stFileUploader"] {{
-        background-color: {bg_card} !important;
-        border-color: {border_color} !important;
-        border-radius: 10px;
-    }}
-    [data-testid="stFileUploader"] span,
-    [data-testid="stFileUploader"] p {{
-        color: {text_secondary} !important;
-    }}
+[data-testid="stChatMessage"] {
+    background-color: #f8fafc !important;
+    border: 1px solid rgba(108,99,255,0.2);
+    border-radius: 12px;
+    margin-bottom: 6px;
+}
+[data-testid="stChatMessage"] p,
+[data-testid="stChatMessage"] li,
+[data-testid="stChatMessage"] span { color: #0f172a !important; }
 
-    /* ── Buttons ── */
-    .stButton > button {{
-        background-color: {bg_card} !important;
-        color: {text_primary} !important;
-        border: 1px solid {border_color} !important;
-        transition: all 0.2s ease !important;
-    }}
-    .stButton > button:hover {{
-        border-color: #6C63FF !important;
-        box-shadow: 0 0 0 2px rgba(108,99,255,0.2) !important;
-    }}
-    .stButton > button[kind="primary"] {{
-        background: linear-gradient(135deg,#6C63FF,#48CAE4) !important;
-        color: white !important;
-        border: none !important;
-    }}
+.stTabs [data-baseweb="tab-list"] { background-color: #ffffff !important; border-radius: 8px; }
+.stTabs [data-baseweb="tab"] { color: #475569 !important; }
+.stTabs [aria-selected="true"] { color: #6C63FF !important; }
 
-    /* ── Chat messages ── */
-    [data-testid="stChatMessage"] {{
-        background-color: {chat_msg_bg} !important;
-        border: 1px solid {border_color};
-        border-radius: 12px;
-        margin-bottom: 6px;
-        transition: background-color 0.3s ease;
-    }}
-    [data-testid="stChatMessage"] p,
-    [data-testid="stChatMessage"] li,
-    [data-testid="stChatMessage"] span {{
-        color: {text_primary} !important;
-    }}
+[data-testid="stAlert"] {
+    background-color: #ffffff !important;
+    border-color: rgba(108,99,255,0.2) !important;
+}
+[data-testid="stAlert"] p { color: #0f172a !important; }
 
-    /* ── Tabs ── */
-    .stTabs [data-baseweb="tab-list"] {{
-        background-color: {bg_card} !important;
-        border-radius: 8px;
-    }}
-    .stTabs [data-baseweb="tab"] {{
-        color: {text_secondary} !important;
-    }}
-    .stTabs [aria-selected="true"] {{
-        color: #6C63FF !important;
-    }}
+hr { border-color: rgba(0,0,0,0.07) !important; }
+.stCaption, [data-testid="stCaptionContainer"] p { color: #94a3b8 !important; }
+.stRadio > div > label, .stSelectbox > div > label { color: #0f172a !important; }
 
-    /* ── Alert / info / warning ── */
-    [data-testid="stAlert"] {{
-        background-color: {bg_card} !important;
-        border-color: {border_color} !important;
-    }}
-    [data-testid="stAlert"] p {{
-        color: {text_primary} !important;
-    }}
-
-    /* ── Dividers ── */
-    hr {{
-        border-color: {divider} !important;
-    }}
-
-    /* ── Caption ── */
-    .stCaption, [data-testid="stCaptionContainer"] p {{
-        color: {text_muted} !important;
-    }}
-
-    /* ── Selectbox / radio ── */
-    .stRadio > div > label,
-    .stSelectbox > div > label {{
-        color: {text_primary} !important;
-    }}
-
-    /* ── Toggle button styling ── */
-    .theme-toggle {{
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        width: 100%;
-        padding: 8px 16px;
-        border-radius: 20px;
-        border: 1px solid {toggle_border};
-        background: {toggle_bg};
-        color: {text_primary};
-        font-size: 13px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.25s ease;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.07);
-        letter-spacing: 0.3px;
-        margin-bottom: 2px;
-    }}
-    .theme-toggle:hover {{
-        border-color: #6C63FF;
-        box-shadow: 0 0 0 2px rgba(108,99,255,0.18);
-    }}
-
-    /* ── Logo ── */
-    .logo-bar {{
-        display:flex; align-items:center; gap:14px;
-        padding:18px 0 10px 0;
-    }}
-    .logo-text {{
-        font-size:2.2rem; font-weight:900; letter-spacing:5px;
-        background:linear-gradient(135deg,#6C63FF 0%,#48CAE4 100%);
-        -webkit-background-clip:text; -webkit-text-fill-color:transparent;
-        background-clip:text; margin:0; line-height:1.1;
-    }}
-    .logo-tagline {{
-        font-size:0.7rem; color:{text_muted};
-        letter-spacing:2.5px; text-transform:uppercase; margin:0;
-    }}
-    .sidebar-logo {{
-        display:flex; align-items:center; gap:10px;
-        padding:8px 0 14px 0;
-        border-bottom:1px solid {border_color};
-        margin-bottom:12px;
-    }}
-    .sidebar-logo-text {{
-        font-size:1rem; font-weight:800; letter-spacing:3px;
-        background:linear-gradient(135deg,#6C63FF 0%,#48CAE4 100%);
-        -webkit-background-clip:text; -webkit-text-fill-color:transparent;
-        background-clip:text;
-    }}
-
-    /* ── Welcome screen hint ── */
-    .ss-tagline {{ color: {text_muted} !important; }}
-    </style>
-    """, unsafe_allow_html=True)
-
-    return toggle_label
+.logo-bar { display:flex; align-items:center; gap:14px; padding:18px 0 10px 0; }
+.logo-text {
+    font-size:2.2rem; font-weight:900; letter-spacing:5px;
+    background:linear-gradient(135deg,#6C63FF 0%,#48CAE4 100%);
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+    background-clip:text; margin:0; line-height:1.1;
+}
+.logo-tagline { font-size:0.7rem; color:#94a3b8; letter-spacing:2.5px; text-transform:uppercase; margin:0; }
+.sidebar-logo {
+    display:flex; align-items:center; gap:10px; padding:8px 0 14px 0;
+    border-bottom:1px solid rgba(108,99,255,0.2); margin-bottom:12px;
+}
+.sidebar-logo-text {
+    font-size:1rem; font-weight:800; letter-spacing:3px;
+    background:linear-gradient(135deg,#6C63FF 0%,#48CAE4 100%);
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+}
+.ss-tagline { color: #94a3b8 !important; }
+</style>
+""", unsafe_allow_html=True)
 
 
 # -------------------- FIREBASE --------------------
@@ -300,10 +181,6 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
-
-
-# -------------------- INJECT THEME (runs every rerun) --------------------
-toggle_label = inject_theme_css(st.session_state.theme)
 
 
 # -------------------- HELPERS --------------------
@@ -575,11 +452,6 @@ with st.sidebar:
         st.caption("Chats are not saved.")
     else:
         st.success(f"👤 {st.session_state.email}")
-
-    # ── Theme Toggle ──
-    if st.button(toggle_label, use_container_width=True, key="theme_toggle"):
-        st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
-        st.rerun()
 
     if st.button("🚪 Logout", use_container_width=True):
         for k in defaults:
