@@ -297,6 +297,11 @@ def load_llm():
     )
 
 
+@st.cache_resource
+def get_embeddings():
+    return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+
+
 # ==================== AUTH SCREEN ====================
 if not st.session_state.authenticated and not st.session_state.is_guest:
 
@@ -594,96 +599,111 @@ body {
         st.divider()
 
         pdf = st.file_uploader("Upload PDF", type="pdf")
+
         if pdf and st.session_state.vector_db is None:
-            # Show custom PDF scanning animation using components.html (supports CSS animations)
             anim_slot = st.empty()
-            with anim_slot:
-                components.html("""
-<!DOCTYPE html>
+            try:
+                with anim_slot:
+                    components.html("""<!DOCTYPE html>
 <html>
 <head>
 <style>
   body {
-    display:flex; flex-direction:column;
-    align-items:center; justify-content:center;
-    background:transparent; margin:0; padding:20px 0;
-    font-family:'Segoe UI',Roboto,sans-serif;
+    background: transparent;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    margin: 0;
+    font-family: 'Inter', sans-serif;
   }
-  .pdf-card {
-    position:relative; width:140px; height:190px;
-    background:rgba(255,255,255,0.05);
-    backdrop-filter:blur(10px);
-    border:1px solid rgba(255,255,255,0.15);
-    border-radius:12px;
-    box-shadow:0 8px 32px rgba(0,0,0,0.5);
-    overflow:hidden;
-    display:flex; flex-direction:column;
-    padding:20px 15px; box-sizing:border-box;
+  .loader-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+    padding: 20px 0;
   }
-  .skeleton-line {
-    height:8px; background:#334155;
-    border-radius:4px; margin-bottom:12px;
-    position:relative; overflow:hidden; width:100%;
+  .pdf-box {
+    position: relative;
+    width: 48px;
+    height: 64px;
+    background: #1e293b;
+    border: 2px solid #38bdf8;
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);
   }
-  .skeleton-line.short { width:60%; }
-  .skeleton-line::after {
-    content:""; position:absolute;
-    top:0; left:-100%; width:100%; height:100%;
-    background:linear-gradient(90deg,transparent,rgba(255,255,255,0.25),transparent);
-    animation:shimmer 1.5s infinite;
+  .laser {
+    position: absolute;
+    width: 100%;
+    height: 3px;
+    background: #38bdf8;
+    box-shadow: 0 0 12px #38bdf8, 0 0 4px #38bdf8;
+    z-index: 2;
+    animation: scan-loop 2s ease-in-out infinite;
   }
-  .scanner-beam {
-    position:absolute; top:-50px; left:0;
-    width:100%; height:50px;
-    background:linear-gradient(to bottom,transparent,rgba(56,189,248,0.6));
-    border-bottom:2px solid #38bdf8;
-    box-shadow:0 5px 20px rgba(56,189,248,0.5);
-    animation:scan 2.5s infinite ease-in-out alternate;
-    z-index:10;
+  .content-lines {
+    padding: 10px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
   }
-  .pdf-badge {
-    position:absolute; bottom:12px; right:12px;
-    background:linear-gradient(135deg,#ef4444,#b91c1c);
-    color:white; font-size:10px; letter-spacing:1px;
-    font-weight:700; padding:4px 8px;
-    border-radius:6px;
-    box-shadow:0 4px 10px rgba(239,68,68,0.4);
+  .line {
+    height: 3px;
+    background: #334155;
+    border-radius: 10px;
   }
-
-  @keyframes scan {
-    0%   { top:-50px; opacity:0; }
-    10%  { opacity:1; }
-    90%  { opacity:1; }
-    100% { top:100%; opacity:0; }
+  .status-text {
+    color: #94a3b8;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
   }
-  @keyframes shimmer { 100% { left:100%; } }
-
+  .dots::after {
+    content: '';
+    animation: dot-count 1.5s infinite;
+  }
+  @keyframes scan-loop {
+    0%, 100% { top: 5%; opacity: 0.5; }
+    50% { top: 90%; opacity: 1; }
+  }
+  @keyframes dot-count {
+    0%   { content: ''; }
+    25%  { content: '.'; }
+    50%  { content: '..'; }
+    75%  { content: '...'; }
+    100% { content: ''; }
+  }
 </style>
 </head>
 <body>
-  <div class="pdf-card">
-    <div class="scanner-beam"></div>
-    <div class="skeleton-line"></div>
-    <div class="skeleton-line"></div>
-    <div class="skeleton-line short"></div>
-    <div class="skeleton-line"></div>
-    <div class="skeleton-line short"></div>
-    <div class="skeleton-line"></div>
-    <div class="pdf-badge">PDF</div>
+  <div class="loader-wrapper">
+    <div class="pdf-box">
+      <div class="laser"></div>
+      <div class="content-lines">
+        <div class="line" style="width: 100%"></div>
+        <div class="line" style="width: 80%"></div>
+        <div class="line" style="width: 90%"></div>
+        <div class="line" style="width: 60%"></div>
+        <div class="line" style="width: 85%"></div>
+      </div>
+    </div>
+    <div class="status-text">Analyzing the PDF<span class="dots"></span></div>
   </div>
 </body>
-</html>
-""", height=300)
+</html>""", height=140)
 
-            reader = PdfReader(pdf)
-            text = "".join(p.extract_text() or "" for p in reader.pages)
-            splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=150)
-            chunks = splitter.split_text(text)
-            emb = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-            st.session_state.vector_db = FAISS.from_texts(chunks, emb)
+                reader = PdfReader(pdf)
+                text = "".join(p.extract_text() or "" for p in reader.pages)
+                splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=150)
+                chunks = splitter.split_text(text)
+                emb = get_embeddings()
+                st.session_state.vector_db = FAISS.from_texts(chunks, emb)
 
-            # Clear animation and show success
-            anim_slot.empty()
+            finally:
+                anim_slot.empty()
+
             st.success("✅ PDF processed! Ask your questions below.")
 
     else:
@@ -701,8 +721,6 @@ body {
 .scene {
   position:relative; width:200px; height:120px;
 }
-
-/* Image card */
 .img-card {
   position:absolute; left:0; top:10px;
   width:65px; height:90px;
@@ -712,10 +730,7 @@ body {
   overflow:hidden;
   animation:cardFloat 3s ease-in-out infinite;
 }
-/* mountain svg inside card */
 .img-card svg { width:100%; height:100%; }
-
-/* Search bar */
 .search-bar {
   position:absolute; left:38px; top:4px;
   width:150px; height:28px;
@@ -743,8 +758,6 @@ body {
   animation:btnPop 0.3s 1.8s ease-out both;
   transform:scale(0);
 }
-
-/* Response bubble */
 .response-bubble {
   position:absolute; right:0; bottom:0;
   width:100px; height:48px;
@@ -770,7 +783,6 @@ body {
   letter-spacing:0.3px;
   animation:fadeIn 0.3s 2.4s ease-out both; opacity:0;
 }
-
 @keyframes cardFloat {
   0%,100% { transform:translateY(0px); }
   50%      { transform:translateY(-5px); }
@@ -783,19 +795,12 @@ body {
   from { width:0; }
   to   { width:72px; border-right:none; }
 }
-@keyframes btnPop {
-  to { transform:scale(1); }
-}
-@keyframes bubblePop {
-  to { transform:scale(1); }
-}
-@keyframes fadeIn {
-  to { opacity:1; }
-}
+@keyframes btnPop { to { transform:scale(1); } }
+@keyframes bubblePop { to { transform:scale(1); } }
+@keyframes fadeIn { to { opacity:1; } }
 </style></head>
 <body>
 <div class="scene">
-  <!-- Image Card with mountain SVG -->
   <div class="img-card">
     <svg viewBox="0 0 65 90" xmlns="http://www.w3.org/2000/svg">
       <rect width="65" height="90" fill="#bfdbfe"/>
@@ -804,20 +809,15 @@ body {
       <polygon points="28,80 45,42 65,80" fill="#1d4ed8" opacity="0.7"/>
       <polygon points="24,42 32,28 40,42" fill="white" opacity="0.9"/>
       <rect y="60" width="65" height="30" fill="#1e3a8a" opacity="0.5"/>
-      <!-- clouds -->
       <ellipse cx="12" cy="18" rx="8" ry="4" fill="white" opacity="0.7"/>
       <ellipse cx="50" cy="14" rx="6" ry="3" fill="white" opacity="0.6"/>
     </svg>
   </div>
-
-  <!-- Search Bar -->
   <div class="search-bar">
     <span class="search-icon">🔍</span>
     <span class="search-text">What is this?</span>
     <div class="search-btn">🔍</div>
   </div>
-
-  <!-- Response Bubble -->
   <div class="response-bubble">
     <div class="response-inner">A Mountain</div>
   </div>
@@ -886,8 +886,9 @@ body {
                 with st.spinner("🖼 Analyzing image..."):
                     image_bytes = active_image.getvalue()
                     encoded = base64.b64encode(image_bytes).decode("utf-8")
-                    mime = "image/jpeg" if (camera_file and not img_file) else \
-                           ("image/png" if img_file.name.lower().endswith(".png") else "image/jpeg")
+                    mime = "image/jpeg"
+                    if img_file and img_file.name.lower().endswith(".png"):
+                        mime = "image/png"
                     response = load_llm().invoke([HumanMessage(content=[
                         {"type": "text", "text": question},
                         {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}},
