@@ -883,7 +883,116 @@ body {
             if not active_image:
                 answer = "⚠️ Please upload an image or take a photo first."
             else:
-                with st.spinner("🖼 Analyzing image..."):
+                img_anim_slot = st.empty()
+                try:
+                    with img_anim_slot:
+                        components.html("""<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body {
+    background: transparent;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    margin: 0;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .qa-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 0;
+  }
+  .viewport {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    background: rgba(99, 102, 241, 0.05);
+    border-radius: 4px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  .viewport::before, .viewport::after {
+    content: '';
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    border: 2px solid transparent;
+    box-sizing: border-box;
+    animation: focus-pulse 2s ease-in-out infinite;
+  }
+  .viewport::before {
+    border-top-color: #818cf8;
+    border-left-color: #818cf8;
+    top: 0; left: 0;
+  }
+  .viewport::after {
+    border-bottom-color: #818cf8;
+    border-right-color: #818cf8;
+    bottom: 0; right: 0;
+  }
+  .crosshair {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #38bdf8;
+    border-radius: 50%;
+    position: absolute;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    animation: ai-search 4s infinite linear;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+  }
+  .crosshair::after {
+    content: '';
+    width: 2px;
+    height: 2px;
+    background: #38bdf8;
+    border-radius: 50%;
+  }
+  .status {
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+  }
+  @keyframes focus-pulse {
+    0%, 100% { width: 100%; height: 100%; opacity: 0.8; }
+    50% { width: 85%; height: 85%; opacity: 0.3; }
+  }
+  @keyframes ai-search {
+    0%   { transform: translate(-15px, -15px); }
+    25%  { transform: translate(15px, -10px); }
+    50%  { transform: translate(10px, 15px); }
+    75%  { transform: translate(-12px, 10px); }
+    100% { transform: translate(-15px, -15px); }
+  }
+  .dots::after {
+    content: '';
+    animation: dots 1.5s steps(4, end) infinite;
+  }
+  @keyframes dots {
+    0%, 20% { content: ''; }
+    40%  { content: '.'; }
+    60%  { content: '..'; }
+    80%  { content: '...'; }
+  }
+</style>
+</head>
+<body>
+  <div class="qa-box">
+    <div class="viewport">
+      <div class="crosshair"></div>
+    </div>
+    <div class="status">Analyzing image<span class="dots"></span></div>
+  </div>
+</body>
+</html>""", height=120)
+
                     image_bytes = active_image.getvalue()
                     encoded = base64.b64encode(image_bytes).decode("utf-8")
                     mime = "image/jpeg"
@@ -894,6 +1003,8 @@ body {
                         {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}},
                     ])])
                     answer = response.content
+                finally:
+                    img_anim_slot.empty()
 
         with st.chat_message("assistant"):
             render_answer_with_copy(answer)
